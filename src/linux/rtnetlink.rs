@@ -1,88 +1,119 @@
 #![allow(non_snake_case)]
 #![forbid(clippy::all)]
-use super::sys::rtnetlink;
 use std::mem::size_of;
 use std::ptr;
 
-macro_rules! const_assert_eq {
-    ($a: expr, $b: expr) => {
-        #[allow(unreachable_code)]
-        (if false {
-            let _: [u8; $a] = [0u8; $b];
-        })
-    };
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct rtmsg {
+    pub rtm_family: u8,
+    pub rtm_dst_len: u8,
+    pub rtm_src_len: u8,
+    pub rtm_tos: u8,
+    pub rtm_table: u8,
+    pub rtm_protocol: u8,
+    pub rtm_scope: u8,
+    pub rtm_type: u8,
+    pub rtm_flags: u32,
 }
 
-macro_rules! assert_same_size {
-    ($a: ty, $b: ty) => {
-        const_assert_eq!(size_of::<$a>(), size_of::<$b>())
-    };
+#[repr(C)]
+struct rtattr {
+    rta_len: u16,
+    rta_type: u16,
 }
 
-const RTA_ALIGNTO: usize = rtnetlink::RTA_ALIGNTO as _;
-
-// This is guaranteed to never overflow, since `i32` can hold `u16::MAX + RTA_ALIGNTO`.
-const fn RTA_ALIGN(len: u16) -> i32 {
-    (((len as usize) + RTA_ALIGNTO - 1) & !(RTA_ALIGNTO - 1)) as i32
-}
-
-// Safety: rta must be 4-byte aligned and point to `(len + 3) & !3` bytes of valid memory.
-unsafe fn RTA_OK(rta: *const rtnetlink::rtattr, len: i32) -> bool {
-    assert_same_size!(u16, libc::c_ushort);
-    assert_same_size!(rtnetlink::rtattr, u32);
-    assert_same_size!(rtnetlink::rtattr, [libc::c_ushort; 2]);
-    if len < size_of::<rtnetlink::rtattr>() as i32 {
-        return false;
-    }
-    let len_found = ptr::read(rta as *const u16);
-    size_of::<rtnetlink::rtattr>() <= len_found.into() && len >= len_found.into()
-}
-
-// Safety: rta must be 4-byte aligned and point to `(len + 3) & !3` bytes of valid memory.
-unsafe fn RTA_NEXT(rta: *const rtnetlink::rtattr, len: &mut i32) -> *const rtnetlink::rtattr {
-    const_assert_eq!(std::mem::align_of::<rtnetlink::rtattr>(), 2);
-    let aligned_len = RTA_ALIGN(ptr::read(rta as *const u16));
-    *len -= aligned_len as i32;
-    (rta as *const u8).wrapping_add(aligned_len as usize) as *const _
-}
-
-fn RTA_DATA(rta: *const rtnetlink::rtattr) -> *const u32 {
-    rta.wrapping_add(1) as *const _
-}
+const RTA_ALIGNTO: usize = 4;
 
 pub struct RtaIterator<'a> {
-    phantom: std::marker::PhantomData<&'a [u32]>,
-    pointer: *const rtnetlink::rtattr,
-    len: i32,
+    data: &'a [u32],
+    len: usize,
 }
 
 pub enum RtaMessage {
-    IPv6Addr([u32; 4]),
-    IPv4Addr(u32),
+    IPAddr(std::net::IpAddr),
     Other,
+}
+
+impl<'a> RtaIterator<'a> {
+    pub fn new(data: super::netlink::NlMsgHeader<'a>) -> Option<(&'a rtmsg, Self)> {
+        use std::mem::align_of;
+        let length = data.header().nlmsg_len as usize - size_of::<libc::nlmsghdr>();
+        let buffer = &data.data();
+        assert_eq!(
+            buffer.as_ptr() as usize - data.header() as *const _ as usize,
+            16
+        );
+        if length < size_of::<rtmsg>() {
+            return None;
+        }
+        // length must not be less than size_of::<rtmsg>() (12).
+        if buffer.len() * size_of::<u32>() < length {
+            return None;
+        }
+        // buffer.len() is at least 3
+        let (start, data) = buffer.split_at(3);
+        let _: [u8; 3 * size_of::<u32>()] = [0u8; size_of::<rtmsg>()];
+        let _: [u8; align_of::<u32>()] = [0u8; align_of::<rtmsg>()];
+        // SAFETY: size_of::<rtmsg>() == 3 * size_of::<u32>()
+        //    and: align_of::<rtmsg>() == align_of::<u32>()
+        //    and: `buffer.split_at()` panics if the buffer is shorter than 3.
+        //    and: a `rtmsg` can be composed of any byte sequence
+        //
+        //    if either of the first two are false, the above two `let` statement are ill-typed.
+        let msg: &'a rtmsg = unsafe { &*(start.as_ptr() as *const _) };
+        Some((
+            msg,
+            Self {
+                data,
+                len: length - size_of::<rtmsg>(),
+            },
+        ))
+    }
 }
 
 impl<'a> Iterator for RtaIterator<'a> {
     type Item = RtaMessage;
     fn next(&mut self) -> Option<RtaMessage> {
-        Some(unsafe {
-            if !RTA_OK(self.pointer, self.len) {
-                return None;
+        use std::mem::align_of;
+        if self.len < size_of::<rtattr>() {
+            return None;
+        }
+
+        if self.data.len() * size_of::<u32>() < self.len {
+            panic!("we always ensure that `data` has at least `len` bytes, but it is of length {} when len is {}; qed", self.data.len(), self.len)
+        }
+
+        let _: [u8; 0] = [0u8; (align_of::<u32>() < align_of::<rtattr>()) as usize];
+        let _: [u8; 0] = [0u8; size_of::<u32>() - size_of::<rtattr>()];
+
+        // SAFETY: size_of::<rtmsg>() == size_of::<u32>()
+        //    and: align_of::<rtmsg>() < align_of::<u32>()
+        //    and: rtmsg can have any bit pattern
+        //    and: we checked that `data` points to at least `size_of::<rtattr>()` bytes
+        let attr: &'a rtattr = unsafe { &*(self.data.as_ptr() as *const _) };
+        let rta_len = attr.rta_len as usize;
+        if rta_len < size_of::<rtattr>() || self.len < rta_len {
+            return None;
+        }
+
+        let aligned_len = (rta_len + RTA_ALIGNTO - 1) / size_of::<u32>();
+        // cannot panic because RTA_ALIGNTO == size_of::<u32>(), and so if `rta_len` does not
+        // exceed the amount of data stored, neither will `aligned_len * size_of::<u32>()`.
+        let (contents, new_data) = self.data[1..].split_at(aligned_len - 1);
+        self.data = new_data;
+        self.len -= aligned_len * size_of::<u32>();
+        let (payload, ty) = (rta_len - RTA_ALIGNTO, attr.rta_type);
+        Some(match (payload, ty) {
+            (16, libc::RTA_DST) | (16, libc::RTA_SRC) => {
+                assert_eq!(contents.len(), 4);
+                let buffer: [u8; 16] = unsafe { ptr::read(contents.as_ptr() as _) };
+                RtaMessage::IPAddr(buffer.into())
             }
-            let current_pointer = self.pointer;
-            self.pointer = RTA_NEXT(current_pointer, &mut self.len);
-            let payload = ptr::read(current_pointer as *const u16) as i32
-                - RTA_ALIGN(size_of::<rtnetlink::rtattr>() as _);
-            let ty = ptr::read((current_pointer as *const u16).wrapping_add(1));
-            match (payload, ty) {
-                (16, libc::RTA_DST) | (16, libc::RTA_SRC) => {
-                    RtaMessage::IPv6Addr(ptr::read(RTA_DATA(current_pointer) as *const _))
-                }
-                (4, libc::RTA_DST) | (4, libc::RTA_SRC) => {
-                    RtaMessage::IPv4Addr(ptr::read(RTA_DATA(current_pointer) as *const _))
-                }
-                _ => RtaMessage::Other,
+            (4, libc::RTA_DST) | (4, libc::RTA_SRC) => {
+                RtaMessage::IPAddr(contents[0].to_ne_bytes().into())
             }
+            _ => RtaMessage::Other,
         })
     }
 }

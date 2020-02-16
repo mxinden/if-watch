@@ -1,6 +1,12 @@
 macro_rules! size_of {
     ($t: ty) => {
-        ::std::mem::size_of::<$t>()
+        ::core::mem::size_of::<$t>()
+    };
+}
+
+macro_rules! align_of {
+    ($t: ty) => {
+        ::core::mem::align_of::<$t>()
     };
 }
 

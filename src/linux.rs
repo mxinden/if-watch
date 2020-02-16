@@ -122,17 +122,16 @@ impl NetlinkSocket {
     }
 
     pub fn recv(&self, buf: &mut [u32]) -> std::io::Result<usize> {
-        let mut address = std::mem::MaybeUninit::<libc::sockaddr_nl>::uninit();
-        #[repr(C)]
-        struct UcredCmsg {
-            hdr: libc::cmsghdr,
-            data: libc::ucred,
-        }
-
-        let _: [u8; size_of!(UcredCmsg)] = [0u8; CMSG_SPACE(size_of!(libc::ucred))];
-        let mut cmsghdr = std::mem::MaybeUninit::<UcredCmsg>::zeroed();
+        use std::mem::MaybeUninit;
+        let mut address = MaybeUninit::<libc::sockaddr_nl>::uninit();
+        union UcredCmsg {
+            _dummy2: libc::cmsghdr,
+            _data: [u8; CMSG_SPACE(size_of!(libc::ucred))],
+        };
+        let _: [u8; 0] = [0u8; align_of!(UcredCmsg) - align_of!(libc::cmsghdr)];
+        let mut cmsghdr = MaybeUninit::<UcredCmsg>::zeroed();
         let mut iovec = libc::iovec {
-            iov_base: buf.as_mut_ptr() as *mut std::ffi::c_void,
+            iov_base: buf.as_mut_ptr() as *mut _,
             iov_len: buf.len() * size_of!(u32),
         };
 
@@ -158,54 +157,33 @@ impl NetlinkSocket {
             if status < 0 {
                 break Err(std::io::Error::last_os_error());
             }
-            assert_eq!(
-                msghdr.msg_namelen,
-                size_of!(libc::sockaddr_nl) as u32,
-                "wrong size of message header"
-            );
-            let address = unsafe { address.assume_init() };
-            assert_eq!(
-                address.nl_family,
-                libc::AF_NETLINK as u16,
-                "kernel provided wrong address family"
-            );
-            assert_eq!(
-                msghdr.msg_controllen,
-                size_of!(UcredCmsg),
-                "kernel didn’t provide a ucred ancillary data"
-            );
-            let cmsghdr = unsafe {
-                let pointer = libc::CMSG_FIRSTHDR(&msghdr as *const _);
-                assert_eq!(
-                    pointer as *const libc::c_void,
-                    cmsghdr.as_ptr() as *const libc::c_void,
-                    "kernel provided bad ancillary data: incorrect start"
-                );
-                &*cmsghdr.as_ptr()
-            };
-            assert_eq!(&cmsghdr.data as *const _ as *const libc::c_uchar, unsafe {
-                libc::CMSG_DATA(cmsghdr as *const _ as *const _)
-            });
-            assert_eq!(
-                cmsghdr.hdr.cmsg_len,
-                unsafe { libc::CMSG_LEN(size_of!(libc::ucred) as _) as _ },
-                "kernel provided bad ancillary data: incorrect length"
-            );
-            assert_eq!(
-                cmsghdr.hdr.cmsg_level,
-                libc::SOL_SOCKET,
-                "kernel provided bad ancillary data: incorrect level"
-            );
-            assert_eq!(
-                cmsghdr.hdr.cmsg_type,
-                libc::SCM_CREDENTIALS,
-                "kernel provided bad ancillary data: incorrect type"
-            );
-            if address.nl_pid == 0
-                && cmsghdr.data.pid == 0
-                && cmsghdr.data.uid == 0
-                && cmsghdr.data.gid == 0
+            if msghdr.msg_namelen != size_of!(libc::sockaddr_nl) as u32
+                || msghdr.msg_controllen
+                    != unsafe { libc::CMSG_SPACE(size_of!(libc::ucred) as _) } as _
             {
+                break Err(std::io::ErrorKind::InvalidData.into());
+            }
+            let address = unsafe { address.assume_init() };
+            if address.nl_family != libc::AF_NETLINK as u16 {
+                continue;
+            }
+            let cmsghdr = unsafe {
+                let pointer = libc::CMSG_FIRSTHDR(&msghdr);
+                if pointer.is_null() {
+                    // kernel did not attach credentials
+                    break Err(std::io::ErrorKind::InvalidData.into());
+                }
+                &*pointer
+            };
+            if cmsghdr.cmsg_len != unsafe { libc::CMSG_LEN(size_of!(libc::ucred) as _) } as _
+                || cmsghdr.cmsg_level != libc::SOL_SOCKET
+                || cmsghdr.cmsg_type != libc::SCM_CREDENTIALS
+            {
+                // kernel did not attach credentials
+                break Err(std::io::ErrorKind::InvalidData.into());
+            }
+            let cmsghdr = unsafe { &*(libc::CMSG_DATA(cmsghdr) as *const libc::ucred) };
+            if address.nl_pid == 0 && cmsghdr.pid == 0 && cmsghdr.uid == 0 && cmsghdr.gid == 0 {
                 break Ok(status as usize);
             } /* else: ignore packet not from kernel */
         }
@@ -239,7 +217,13 @@ mod tests {
         sock.send().unwrap();
         let buf = &mut [0u32; 8192];
         loop {
-            let len = sock.recv(buf).unwrap();
+            let len = match sock.recv(buf) {
+                Ok(len) => len,
+                Err(e) => {
+                    assert_eq!(e.kind(), std::io::ErrorKind::WouldBlock);
+                    break;
+                }
+            };
             for i in NetlinkIterator::new(buf, len) {
                 let hdr = i.header();
                 match hdr.nlmsg_type as i32 {

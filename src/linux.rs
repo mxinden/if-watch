@@ -13,16 +13,6 @@ pub struct NetlinkSocket {
     seqnum: u32,
 }
 
-#[allow(non_snake_case)]
-const fn CMSG_ALIGN(len: usize) -> usize {
-    (len + size_of!(usize) - 1) & !(size_of!(usize) - 1)
-}
-
-#[allow(non_snake_case)]
-const fn CMSG_SPACE(len: usize) -> usize {
-    CMSG_ALIGN(len) + CMSG_ALIGN(size_of!(libc::cmsghdr))
-}
-
 impl NetlinkSocket {
     pub fn new() -> io::Result<Self> {
         let fd = unsafe {
@@ -46,18 +36,6 @@ impl NetlinkSocket {
             if bind_result < 0 {
                 libc::close(fd);
                 return Err(std::io::Error::last_os_error());
-            }
-            let flag: libc::c_int = 1;
-            let setsockopt_result = libc::setsockopt(
-                fd,
-                libc::SOL_SOCKET,
-                libc::SO_PASSCRED,
-                &flag as *const _ as *const _,
-                size_of!(libc::c_int) as libc::socklen_t,
-            );
-            if setsockopt_result < 0 {
-                libc::close(fd);
-                panic!("setting SO_PASSCRED on a Netlink socket will succeed")
             }
             Ok(Self {
                 fd,
@@ -123,26 +101,19 @@ impl NetlinkSocket {
 
     pub fn recv(&self, buf: &mut [u32]) -> std::io::Result<usize> {
         let mut address = std::mem::MaybeUninit::<libc::sockaddr_nl>::uninit();
-        #[repr(C)]
-        struct UcredCmsg {
-            hdr: libc::cmsghdr,
-            data: libc::ucred,
-        }
 
-        let _: [u8; size_of!(UcredCmsg)] = [0u8; CMSG_SPACE(size_of!(libc::ucred))];
-        let mut cmsghdr = std::mem::MaybeUninit::<UcredCmsg>::zeroed();
         let mut iovec = libc::iovec {
             iov_base: buf.as_mut_ptr() as *mut std::ffi::c_void,
             iov_len: buf.len() * size_of!(u32),
         };
 
         let mut msghdr = libc::msghdr {
-            msg_name: &mut address as *mut _ as *mut _,
+            msg_name: address.as_mut_ptr() as _,
             msg_namelen: size_of!(libc::sockaddr_nl) as u32,
             msg_iov: &mut iovec,
             msg_iovlen: 1,
-            msg_control: cmsghdr.as_mut_ptr() as *mut _,
-            msg_controllen: size_of!(UcredCmsg),
+            msg_control: std::ptr::null_mut(),
+            msg_controllen: 0,
             msg_flags: 0,
         };
 
@@ -158,54 +129,14 @@ impl NetlinkSocket {
             if status < 0 {
                 break Err(std::io::Error::last_os_error());
             }
-            assert_eq!(
-                msghdr.msg_namelen,
-                size_of!(libc::sockaddr_nl) as u32,
-                "wrong size of message header"
-            );
+            if msghdr.msg_namelen != size_of!(libc::sockaddr_nl) as u32 {
+                break Err(std::io::ErrorKind::InvalidData.into());
+            }
             let address = unsafe { address.assume_init() };
-            assert_eq!(
-                address.nl_family,
-                libc::AF_NETLINK as u16,
-                "kernel provided wrong address family"
-            );
-            assert_eq!(
-                msghdr.msg_controllen,
-                size_of!(UcredCmsg),
-                "kernel didn’t provide a ucred ancillary data"
-            );
-            let cmsghdr = unsafe {
-                let pointer = libc::CMSG_FIRSTHDR(&msghdr as *const _);
-                assert_eq!(
-                    pointer as *const libc::c_void,
-                    cmsghdr.as_ptr() as *const libc::c_void,
-                    "kernel provided bad ancillary data: incorrect start"
-                );
-                &*cmsghdr.as_ptr()
-            };
-            assert_eq!(&cmsghdr.data as *const _ as *const libc::c_uchar, unsafe {
-                libc::CMSG_DATA(cmsghdr as *const _ as *const _)
-            });
-            assert_eq!(
-                cmsghdr.hdr.cmsg_len,
-                unsafe { libc::CMSG_LEN(size_of!(libc::ucred) as _) as _ },
-                "kernel provided bad ancillary data: incorrect length"
-            );
-            assert_eq!(
-                cmsghdr.hdr.cmsg_level,
-                libc::SOL_SOCKET,
-                "kernel provided bad ancillary data: incorrect level"
-            );
-            assert_eq!(
-                cmsghdr.hdr.cmsg_type,
-                libc::SCM_CREDENTIALS,
-                "kernel provided bad ancillary data: incorrect type"
-            );
-            if address.nl_pid == 0
-                && cmsghdr.data.pid == 0
-                && cmsghdr.data.uid == 0
-                && cmsghdr.data.gid == 0
-            {
+            if libc::AF_NETLINK != address.nl_family.into() {
+                unreachable!("this is a netlink socket, so the address family is AF_NETLINK; qed");
+            }
+            if address.nl_pid == 0 {
                 break Ok(status as usize);
             } /* else: ignore packet not from kernel */
         }
@@ -238,19 +169,17 @@ mod tests {
         let mut sock = NetlinkSocket::new().unwrap();
         sock.send().unwrap();
         let buf = &mut [0u32; 8192];
-        while let Ok(len) = sock.recv(buf) {
-            // println!("Message was {} bytes", len);
+        loop {
+            let len = sock.recv(buf).unwrap();
             for i in NetlinkIterator::new(buf, len) {
                 let hdr = i.header();
-                // println!("Got {:?}", hdr);
                 match hdr.nlmsg_type as i32 {
                     libc::NLMSG_NOOP => continue,
                     libc::NLMSG_ERROR => panic!("we got an error!"),
                     libc::NLMSG_OVERRUN => panic!("buffer overrun!"),
-                    libc::NLMSG_DONE => continue,
+                    libc::NLMSG_DONE => return,
                     RTM_NEWROUTE | RTM_DELROUTE => {
                         let mut the_ip = None;
-                        // println!("Got a routing message!");
                         let (hdr, iter) = RtaIterator::new(i).expect("bad message from kernel");
                         match (hdr.rtm_family as i32, hdr.rtm_table, hdr.rtm_type) {
                             (libc::AF_INET, libc::RT_TABLE_LOCAL, libc::RTN_LOCAL) => {}
@@ -261,8 +190,19 @@ mod tests {
                             rtnetlink::RtaMessage::IPAddr(e) => Some(e),
                             _ => None,
                         }) {
-                            the_ip = Some(i.clone());
-                            println!("IP address {}/{}", i, hdr.rtm_dst_len.max(hdr.rtm_src_len))
+                            assert!(std::mem::replace(&mut the_ip, Some(i.clone())).is_none());
+                            assert_eq!(hdr.rtm_src_len, 0);
+                            match i {
+                                std::net::IpAddr::V4(_) => {
+                                    assert_eq!(hdr.rtm_scope, libc::RT_SCOPE_HOST);
+                                    assert_eq!(hdr.rtm_family as i32, libc::AF_INET);
+                                }
+                                std::net::IpAddr::V6(_) => {
+                                    assert_eq!(hdr.rtm_scope, libc::RT_SCOPE_UNIVERSE);
+                                    assert_eq!(hdr.rtm_family as i32, libc::AF_INET6);
+                                }
+                            }
+                            println!("IP address {}/{}", i, hdr.rtm_dst_len)
                         }
                         assert!(the_ip.is_some());
                     }

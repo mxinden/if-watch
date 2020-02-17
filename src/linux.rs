@@ -38,6 +38,7 @@ impl NetlinkSocket {
         unsafe {
             let mut address = std::mem::zeroed::<libc::sockaddr_nl>();
             address.nl_family = libc::AF_NETLINK as _;
+            address.nl_groups = 0x440;
             let bind_result = libc::bind(
                 fd,
                 &mut address as *mut _ as *mut libc::sockaddr,
@@ -47,6 +48,7 @@ impl NetlinkSocket {
                 libc::close(fd);
                 return Err(std::io::Error::last_os_error());
             }
+            address.nl_groups = 0;
             let flag: libc::c_int = 1;
             let setsockopt_result = libc::setsockopt(
                 fd,
@@ -55,9 +57,12 @@ impl NetlinkSocket {
                 &flag as *const _ as *const _,
                 size_of!(libc::c_int) as libc::socklen_t,
             );
-            if setsockopt_result < 0 {
+            if setsockopt_result != 0 {
                 libc::close(fd);
-                panic!("setting SO_PASSCRED on a Netlink socket will succeed")
+                panic!(
+                    "setting SO_PASSCRED on a Netlink socket will succeed, but got error {}",
+                    std::io::Error::last_os_error()
+                )
             }
             Ok(Self {
                 fd,
@@ -184,8 +189,16 @@ impl NetlinkSocket {
             }
             let cmsghdr = unsafe { &*(libc::CMSG_DATA(cmsghdr) as *const libc::ucred) };
             if address.nl_pid == 0 && cmsghdr.pid == 0 && cmsghdr.uid == 0 && cmsghdr.gid == 0 {
+                #[cfg(test)]
+                println!("got a packet from the kernel!\n");
                 break Ok(status as usize);
-            } /* else: ignore packet not from kernel */
+            } else {
+                #[cfg(test)]
+                println!(
+                    "Ignoring packet not from kernel with PID {}, UID {}, GID {}",
+                    cmsghdr.pid, cmsghdr.uid, cmsghdr.gid,
+                );
+            }
         }
     }
 }
@@ -217,15 +230,10 @@ mod tests {
         sock.send().unwrap();
         let buf = &mut [0u32; 8192];
         loop {
-            let len = match sock.recv(buf) {
-                Ok(len) => len,
-                Err(e) => {
-                    assert_eq!(e.kind(), std::io::ErrorKind::WouldBlock);
-                    break;
-                }
-            };
+            let len = sock.recv(buf).unwrap();
             for i in NetlinkIterator::new(buf, len) {
                 let hdr = i.header();
+                let flags = hdr.nlmsg_flags;
                 match hdr.nlmsg_type as i32 {
                     libc::NLMSG_NOOP => continue,
                     libc::NLMSG_ERROR => panic!("we got an error!"),
@@ -259,7 +267,10 @@ mod tests {
                         }
                         assert!(the_ip.is_some());
                     }
-                    _ => panic!("bad messge from kernel"),
+                    e => panic!("bad messge from kernel: type {}", e),
+                }
+                if flags & libc::NLM_F_MULTI as u16 == 0 {
+                    break;
                 }
             }
         }

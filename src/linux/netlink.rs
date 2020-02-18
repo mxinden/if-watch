@@ -1,12 +1,22 @@
 #![allow(non_snake_case)]
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[repr(C)]
+pub struct NlMsgHdr {
+    pub nlmsg_len: u32,
+    pub nlmsg_type: u16,
+    pub nlmsg_flags: u16,
+    pub nlmsg_seq: u32,
+    pub nlmsg_pid: u32,
+}
+
 #[derive(Debug)]
 pub struct NetlinkIterator<'a> {
     buffer: &'a [u32],
 }
 
 const U32_SIZE: usize = std::mem::size_of::<u32>();
-pub const NLMSG_HDRLEN: usize = NLMSG_ALIGN(std::mem::size_of::<libc::nlmsghdr>());
+pub const NLMSG_HDRLEN: usize = NLMSG_ALIGN(std::mem::size_of::<NlMsgHdr>());
 
 #[inline]
 const fn NLMSG_ALIGN(len: usize) -> usize {
@@ -23,7 +33,7 @@ pub(crate) const fn NLMSG_SPACE(size: usize) -> usize {
 }
 
 pub struct NlMsgHeader<'a> {
-    header: &'a libc::nlmsghdr,
+    header: &'a NlMsgHdr,
     data: &'a [u32],
 }
 
@@ -31,7 +41,7 @@ impl<'a> NlMsgHeader<'a> {
     pub fn data(&self) -> &'a [u32] {
         self.data
     }
-    pub fn header(&self) -> &libc::nlmsghdr {
+    pub fn header(&self) -> &NlMsgHdr {
         self.header
     }
 }
@@ -57,14 +67,14 @@ impl<'a> std::iter::Iterator for NetlinkIterator<'a> {
             return None;
         }
         let _: [u8; NLMSG_ALIGNTO as _] = [0u8; std::mem::size_of::<u32>()];
-        let _: [u8; NLMSG_ALIGNTO as _] = [0u8; std::mem::align_of::<libc::nlmsghdr>()];
+        let _: [u8; NLMSG_ALIGNTO as _] = [0u8; std::mem::align_of::<NlMsgHdr>()];
         let _: [u8; NLMSG_ALIGNTO as _] = [0u8; std::mem::align_of::<u32>()];
         // SAFETY: *any* aligned sequence of 16 bytes is a valid nlmsghdr, and
         // our buffer is valid as long as this struct is.
-        let msg: &'a libc::nlmsghdr = unsafe { &*(self.buffer.as_ptr() as *const _) };
+        let msg: &'a NlMsgHdr = unsafe { &*(self.buffer.as_ptr() as *const _) };
         // use a signed comparison to prevent overflow later
         // this enforces an implicit 2GiB limit on message sizes
-        if (msg.nlmsg_len as i32) < std::mem::size_of::<libc::nlmsghdr>() as i32 {
+        if (msg.nlmsg_len as i32) < std::mem::size_of::<NlMsgHdr>() as i32 {
             return None;
         }
         let msg_len = ((msg.nlmsg_len + NLMSG_ALIGNTO - 1) / NLMSG_ALIGNTO) as usize;
@@ -78,7 +88,7 @@ impl<'a> std::iter::Iterator for NetlinkIterator<'a> {
 }
 
 const NLMSG_ALIGNTO: usize = 4;
-pub const NETLINK_SIZE: usize = std::mem::size_of::<libc::nlmsghdr>();
+pub const NETLINK_SIZE: usize = std::mem::size_of::<NlMsgHdr>();
 
 #[cfg(test)]
 mod tests {

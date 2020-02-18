@@ -5,6 +5,7 @@ use std::{
 mod netlink;
 mod rtnetlink;
 pub use netlink::NetlinkIterator;
+use netlink::NlMsgHdr;
 pub use rtnetlink::RtaIterator;
 
 pub struct NetlinkSocket {
@@ -67,7 +68,7 @@ impl NetlinkSocket {
             Ok(Self {
                 fd,
                 address,
-                seqnum: 0,
+                seqnum: 1,
             })
         }
     }
@@ -77,7 +78,7 @@ impl NetlinkSocket {
         use netlink::NETLINK_SIZE;
         #[repr(C)]
         struct Nlmsg {
-            hdr: libc::nlmsghdr,
+            hdr: NlMsgHdr,
             msg: rtnetlink::rtmsg,
         };
 
@@ -85,7 +86,7 @@ impl NetlinkSocket {
         let _: [u8; SPACE] = [0u8; NETLINK_SIZE + RTMSG_SIZE];
 
         let msg = Nlmsg {
-            hdr: libc::nlmsghdr {
+            hdr: NlMsgHdr {
                 nlmsg_len: SPACE as _,
                 nlmsg_type: libc::RTM_GETROUTE as _,
                 nlmsg_flags: (libc::NLM_F_REQUEST | libc::NLM_F_MULTI | libc::NLM_F_DUMP) as _,
@@ -129,6 +130,9 @@ impl NetlinkSocket {
     pub fn recv(&self, buf: &mut [u32]) -> std::io::Result<usize> {
         use std::mem::MaybeUninit;
         let mut address = MaybeUninit::<libc::sockaddr_nl>::uninit();
+        // These should be constants :(
+        let cmsg_space = unsafe { libc::CMSG_SPACE(size_of!(libc::ucred) as _) } as _;
+        let cmsg_len = unsafe { libc::CMSG_LEN(size_of!(libc::ucred) as _) } as _;
         union UcredCmsg {
             _dummy2: libc::cmsghdr,
             _data: [u8; CMSG_SPACE(size_of!(libc::ucred))],
@@ -163,8 +167,7 @@ impl NetlinkSocket {
                 break Err(std::io::Error::last_os_error());
             }
             if msghdr.msg_namelen != size_of!(libc::sockaddr_nl) as u32
-                || msghdr.msg_controllen
-                    != unsafe { libc::CMSG_SPACE(size_of!(libc::ucred) as _) } as _
+                || msghdr.msg_controllen != cmsg_space
             {
                 break Err(std::io::ErrorKind::InvalidData.into());
             }
@@ -180,7 +183,7 @@ impl NetlinkSocket {
                 }
                 &*pointer
             };
-            if cmsghdr.cmsg_len != unsafe { libc::CMSG_LEN(size_of!(libc::ucred) as _) } as _
+            if cmsghdr.cmsg_len != cmsg_len
                 || cmsghdr.cmsg_level != libc::SOL_SOCKET
                 || cmsghdr.cmsg_type != libc::SCM_CREDENTIALS
             {
@@ -189,16 +192,8 @@ impl NetlinkSocket {
             }
             let cmsghdr = unsafe { &*(libc::CMSG_DATA(cmsghdr) as *const libc::ucred) };
             if address.nl_pid == 0 && cmsghdr.pid == 0 && cmsghdr.uid == 0 && cmsghdr.gid == 0 {
-                #[cfg(test)]
-                println!("got a packet from the kernel!\n");
                 break Ok(status as usize);
-            } else {
-                #[cfg(test)]
-                println!(
-                    "Ignoring packet not from kernel with PID {}, UID {}, GID {}",
-                    cmsghdr.pid, cmsghdr.uid, cmsghdr.gid,
-                );
-            }
+            } // else: ignore packet not from kernel
         }
     }
 }
@@ -234,6 +229,9 @@ mod tests {
             for i in NetlinkIterator::new(buf, len) {
                 let hdr = i.header();
                 let flags = hdr.nlmsg_flags;
+                if hdr.nlmsg_seq != 0 && hdr.nlmsg_seq != sock.seqnum - 1 {
+                    continue;
+                }
                 match hdr.nlmsg_type as i32 {
                     libc::NLMSG_NOOP => continue,
                     libc::NLMSG_ERROR => panic!("we got an error!"),
@@ -267,7 +265,7 @@ mod tests {
                         }
                         assert!(the_ip.is_some());
                     }
-                    e => panic!("bad messge from kernel: type {}", e),
+                    _ => panic!("bad messge from kernel: type {:?}", i.header()),
                 }
                 if flags & libc::NLM_F_MULTI as u16 == 0 {
                     break;

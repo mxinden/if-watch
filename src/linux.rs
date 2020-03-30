@@ -11,16 +11,6 @@ pub struct NetlinkSocket {
     seqnum: u32,
 }
 
-#[allow(non_snake_case)]
-const fn CMSG_ALIGN(len: usize) -> usize {
-    (len + size_of!(usize) - 1) & !(size_of!(usize) - 1)
-}
-
-#[allow(non_snake_case)]
-const fn CMSG_SPACE(len: usize) -> usize {
-    CMSG_ALIGN(len) + CMSG_ALIGN(size_of!(libc::cmsghdr))
-}
-
 const RTMGRP_IPV4_ROUTE: u32 = 0x40;
 const RTMGRP_IPV6_ROUTE: u32 = 0x400;
 impl NetlinkSocket {
@@ -39,17 +29,6 @@ impl NetlinkSocket {
                 return Err(Error::IO(std::io::Error::last_os_error()));
             }
             address.nl_groups = 0;
-            let flag: libc::c_int = 1;
-            let setsockopt_result = libc::setsockopt(
-                fd.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_PASSCRED,
-                &flag as *const _ as *const _,
-                size_of!(libc::c_int) as libc::socklen_t,
-            );
-            if setsockopt_result != 0 {
-                return Err(Error::IO(std::io::Error::last_os_error()));
-            }
             Ok(Self {
                 fd,
                 address,
@@ -112,14 +91,6 @@ impl NetlinkSocket {
         const RECVMSG_FLAGS: libc::c_int =
             libc::MSG_TRUNC | libc::MSG_CMSG_CLOEXEC | libc::MSG_DONTWAIT;
         let mut address = MaybeUninit::<libc::sockaddr_nl>::uninit();
-        // These should be constants :(
-        let cmsg_space = unsafe { libc::CMSG_SPACE(size_of!(libc::ucred) as _) } as usize;
-        let cmsg_len = unsafe { libc::CMSG_LEN(size_of!(libc::ucred) as _) } as usize;
-        union UcredCmsg {
-            _dummy2: libc::cmsghdr,
-            _data: [u8; CMSG_SPACE(size_of!(libc::ucred))],
-        };
-        let mut cmsghdr = MaybeUninit::<UcredCmsg>::uninit();
         let mut iovec = libc::iovec {
             iov_base: buf.as_mut_ptr() as *mut _,
             iov_len: buf.capacity() * size_of!(u32),
@@ -130,8 +101,8 @@ impl NetlinkSocket {
             msg_namelen: size_of!(libc::sockaddr_nl) as u32,
             msg_iov: &mut iovec,
             msg_iovlen: 1,
-            msg_control: cmsghdr.as_mut_ptr() as *mut _,
-            msg_controllen: size_of!(UcredCmsg),
+            msg_control: std::ptr::null_mut(),
+            msg_controllen: 0,
             msg_flags: 0,
         };
 
@@ -147,7 +118,6 @@ impl NetlinkSocket {
                 });
             }
             if msghdr.msg_namelen as usize != size_of!(libc::sockaddr_nl)
-                || msghdr.msg_controllen != cmsg_space
                 || msghdr.msg_flags & (libc::MSG_TRUNC | libc::MSG_CTRUNC) != 0
             {
                 return Err(Error::Desync);
@@ -163,33 +133,12 @@ impl NetlinkSocket {
                 // message not from kernel
                 continue;
             }
-            let cmsghdr: libc::ucred = unsafe {
-                let cmsghdr = libc::CMSG_FIRSTHDR(&msghdr);
-                if cmsghdr.is_null() {
-                    // kernel did not attach credentials
-                    return Err(Error::Desync);
-                }
-                let cmsghdr = &*cmsghdr;
-                if cmsghdr.cmsg_len != cmsg_len
-                    || cmsghdr.cmsg_level != libc::SOL_SOCKET
-                    || cmsghdr.cmsg_type != libc::SCM_CREDENTIALS
-                {
-                    // kernel did not attach credentials
-                    return Err(Error::Desync);
-                }
-                std::ptr::read(libc::CMSG_DATA(cmsghdr) as _)
-            };
-            return if cmsghdr.pid == 0 && cmsghdr.uid == 0 && cmsghdr.gid == 0 {
-                Ok(unsafe {
-                    NetlinkIterator::new(core::slice::from_raw_parts(
-                        iovec.iov_base as _,
-                        status as _,
-                    ))
-                })
-            } else {
-                // kernel sent wrong credentials for its own message
-                return Err(Error::Desync);
-            };
+            break Ok(unsafe {
+                NetlinkIterator::new(core::slice::from_raw_parts(
+                    iovec.iov_base as _,
+                    status as _,
+                ))
+            })
         }
     }
 }

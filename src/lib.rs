@@ -10,20 +10,23 @@ macro_rules! align_of {
     };
 }
 
+mod aligned_buffer;
+
 #[cfg(target_os = "linux")]
 mod linux;
-#[cfg(target_os = "linux")]
-pub use linux::*;
 
-#[cfg(target_os = "bsd")]
+#[cfg(all(unix, not(target_os = "linux")))]
 mod bsd;
-#[cfg(target_os = "bsd")]
-pub use bsd::*;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
+#[derive(Debug)]
+pub enum Error {
+    IO(std::io::Error),
+    Desync,
 }
+
+type Result<A> = core::result::Result<A, Error>;
+
+#[cfg(unix)]
+use fd::Fd as RoutingSocket;
+#[cfg(unix)]
+mod fd;

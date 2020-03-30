@@ -54,12 +54,6 @@ impl<'a> U32AlignedBuffer<'a> {
     }
 }
 
-unsafe impl FromBuffer for libc::nlmsghdr {
-    fn len(&self, _: usize) -> u32 {
-        self.nlmsg_len
-    }
-}
-
 impl core::convert::TryFrom<U32AlignedBuffer<'_>> for std::net::IpAddr {
     type Error = ();
     fn try_from(s: U32AlignedBuffer) -> Result<Self, Self::Error> {

@@ -21,13 +21,15 @@ const fn CMSG_SPACE(len: usize) -> usize {
     CMSG_ALIGN(len) + CMSG_ALIGN(size_of!(libc::cmsghdr))
 }
 
+const RTMGRP_IPV4_ROUTE: u32 = 0x40;
+const RTMGRP_IPV6_ROUTE: u32 = 0x400;
 impl NetlinkSocket {
     pub fn new() -> Result<Self> {
         let fd = crate::RoutingSocket::new().map_err(Error::IO)?;
         unsafe {
             let mut address = std::mem::zeroed::<libc::sockaddr_nl>();
             address.nl_family = libc::AF_NETLINK as _;
-            address.nl_groups = 0x440;
+            address.nl_groups = RTMGRP_IPV4_ROUTE | RTMGRP_IPV6_ROUTE;
             let bind_result = libc::bind(
                 fd.as_raw_fd(),
                 &mut address as *mut _ as *mut libc::sockaddr,
@@ -89,7 +91,7 @@ impl NetlinkSocket {
                 self.fd.as_raw_fd(),
                 &msg as *const _ as *const _,
                 size_of!(Nlmsg) as _,
-                libc::MSG_NOSIGNAL | libc::MSG_DONTWAIT,
+                libc::MSG_NOSIGNAL,
                 &self.address as *const _ as *const _,
                 std::mem::size_of_val(&self.address) as _,
             )
@@ -207,13 +209,28 @@ mod tests {
         const RTM_DELROUTE: i32 = libc::RTM_DELROUTE as _;
         let mut sock = NetlinkSocket::new().unwrap();
         sock.send().unwrap();
+        unsafe {
+            let mut s: std::mem::MaybeUninit<libc::sockaddr_nl> = std::mem::MaybeUninit::uninit();
+            let mut l: libc::socklen_t = size_of!(libc::sockaddr_nl) as _;
+            assert_eq!(
+                libc::getsockname(sock.as_raw_fd(), s.as_mut_ptr() as _, &mut l),
+                0
+            );
+            assert_eq!(l, size_of!(libc::sockaddr_nl) as libc::socklen_t);
+            assert_eq!(size_of!(libc::sockaddr_nl), 12);
+            assert_eq!(size_of!(libc::sa_family_t), 2);
+            assert_eq!(std::ptr::read((s.as_ptr() as *const u16).offset(1)), 0);
+            let s = s.assume_init();
+            assert_eq!(s.nl_family, libc::AF_NETLINK as libc::sa_family_t);
+            println!("Bound to PID {} and groups {}", s.nl_pid, s.nl_groups);
+        }
         let mut buf = Vec::<u32>::with_capacity(8192);
         loop {
             let iter = sock.recv(&mut buf).unwrap();
             for (hdr, mut body) in iter {
                 let flags = hdr.nlmsg_flags;
                 if hdr.nlmsg_seq != 0 && hdr.nlmsg_seq != sock.seqnum - 1 {
-                    panic!("bad sequence number")
+                    continue;
                 }
                 match hdr.nlmsg_type as i32 {
                     libc::NLMSG_NOOP => continue,

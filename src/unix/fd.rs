@@ -1,8 +1,16 @@
+#![allow(unsafe_code)]
 use libc::socket;
 use std::os::unix::prelude::*;
 pub(crate) struct Fd {
     fd: RawFd,
 }
+
+impl std::fmt::Debug for Fd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoutingSocket").field("fd", &self.fd).finish()
+    }
+}
+
 const FLAGS: i32 = libc::SOCK_RAW | libc::SOCK_CLOEXEC;
 impl Fd {
     pub(super) fn new() -> std::io::Result<Fd> {

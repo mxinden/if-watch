@@ -1,3 +1,4 @@
+#![allow(unsafe_code)]
 #[derive(Copy, Clone, Debug)]
 pub struct U32AlignedBuffer<'a> {
     ptr: *const u8,
@@ -5,7 +6,10 @@ pub struct U32AlignedBuffer<'a> {
     phantom: core::marker::PhantomData<&'a [u8]>,
 }
 
+#[cfg(target_os = "linux")]
 const ALIGN: usize = 4;
+#[cfg(not(target_os = "linux"))]
+const ALIGN: usize = 8;
 
 /// Indicate that *any* suitably aligned byte sequence is valid for this type.
 ///
@@ -21,7 +25,7 @@ pub unsafe trait FromBuffer: Copy + Sized {
 impl<'a> U32AlignedBuffer<'a> {
     pub fn new(buf: &'a [u8]) -> Self {
         let (ptr, len) = (buf.as_ptr(), buf.len());
-        assert!(ptr as usize % 4 == 0, "misaligned buffer");
+        assert!(ptr as usize % ALIGN == 0, "misaligned buffer");
         // If the amount of data is too large, `read` could experience memory
         // unsafety due to integer overflow. This prevents this.
         assert!(len < (1 << 20), "data size limit exceeded");
@@ -45,7 +49,7 @@ impl<'a> U32AlignedBuffer<'a> {
         debug_assert!(self.ptr as usize % ALIGN == 0);
         // Check that the length is sufficiently large. A negative length is
         // obviously not sufficiently large.
-        if self.len < size as i32 {
+        if self.len < size {
             return None;
         }
         // It is now safe to read the value of `self.ptr`. The contract of
@@ -89,9 +93,9 @@ impl<'a> U32AlignedBuffer<'a> {
     }
 }
 
-impl core::convert::TryFrom<U32AlignedBuffer<'_>> for std::net::IpAddr {
+impl<'a> core::convert::TryFrom<U32AlignedBuffer<'a>> for std::net::IpAddr {
     type Error = ();
-    fn try_from(s: U32AlignedBuffer) -> Result<Self, Self::Error> {
+    fn try_from(s: U32AlignedBuffer<'a>) -> Result<Self, Self::Error> {
         match s.len {
             16 => unsafe {
                 // SAFETY: we just did the bounds check.

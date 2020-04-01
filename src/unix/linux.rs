@@ -26,29 +26,41 @@ pub(crate) struct NetlinkSocket {
     fd: RoutingSocket,
     address: sockaddr_nl,
     seqnum: u32,
+    pid: u32
 }
 
 const RTMGRP_IPV4_ROUTE: u32 = 0x40;
 const RTMGRP_IPV6_ROUTE: u32 = 0x400;
 const RTM_NEWROUTE: i32 = libc::RTM_NEWROUTE as _;
 const RTM_DELROUTE: i32 = libc::RTM_DELROUTE as _;
+const SOCKADDR_NL_SIZE: libc::socklen_t = size_of!(sockaddr_nl) as _;
+
 impl NetlinkSocket {
     pub(crate) fn new() -> Result<Self> {
         let fd = RoutingSocket::new()?;
         unsafe {
+            let _: [u8; SOCKADDR_NL_SIZE as usize - size_of!(libc::sockaddr_nl)] = [];
             let mut address: sockaddr_nl = std::mem::zeroed();
             address.nl_family = libc::AF_NETLINK as _;
             address.nl_groups = RTMGRP_IPV4_ROUTE | RTMGRP_IPV6_ROUTE;
             let ptr: *mut _ = &mut address;
-            let bind_result = libc::bind(fd.as_raw_fd(), ptr as _, size_of!(sockaddr_nl) as _);
+            let mut addrlen = SOCKADDR_NL_SIZE;
+            let bind_result = libc::bind(fd.as_raw_fd(), ptr as _, addrlen);
             if bind_result < 0 {
                 return Err(Error::last_os_error());
             }
+            while libc::getsockname(fd.as_raw_fd(), ptr as _, &mut addrlen) < 0 {
+                addrlen = SOCKADDR_NL_SIZE
+            }
+            let pid = address.nl_pid;
+            address.nl_pid = 0;
             address.nl_groups = 0;
+            assert_eq!(addrlen, SOCKADDR_NL_SIZE);
             Ok(Self {
                 fd,
                 address,
                 seqnum: 1,
+                pid,
             })
         }
     }
@@ -92,7 +104,7 @@ impl NetlinkSocket {
                 msg as *const _,
                 size_of!(Nlmsg),
                 libc::MSG_NOSIGNAL,
-                address as *const _,
+                address as _,
                 std::mem::size_of_val(&self.address) as _,
             )
         };
@@ -165,7 +177,7 @@ impl NetlinkSocket {
         let flags = libc::MSG_TRUNC | libc::MSG_CMSG_CLOEXEC;
         match self.recv(buf, flags) {
             Status::Data(iter) => {
-                dump_iterator(queue, 0, iter, hash);
+                dump_iterator(queue, 0, iter, hash, self.pid);
                 Status::Data(())
             }
             Status::Desync => Status::Desync,
@@ -189,7 +201,7 @@ impl NetlinkSocket {
                     continue;
                 }
                 Status::Data(iter) => {
-                    if dump_iterator(queue, self.seqnum, iter, hash) {
+                    if dump_iterator(queue, self.seqnum, iter, hash, self.pid) {
                         return Ok(());
                     }
                 }
@@ -203,15 +215,19 @@ fn dump_iterator(
     seqnum: u32,
     iter: NetlinkIterator<'_>,
     hash: &mut HashSet<IpAddr>,
+    pid: u32,
 ) -> bool {
     for (hdr, mut body) in iter {
-        let flags = hdr.nlmsg_flags;
+        if hdr.nlmsg_pid != 0 && hdr.nlmsg_pid != pid {
+            // println!("Rejecting message from wrong process {}", hdr.nlmsg_pid);
+            continue;
+        }
         if hdr.nlmsg_seq != seqnum {
             // println!("Got bogus sequence number {}", hdr.nlmsg_seq);
             continue;
         }
         match hdr.nlmsg_type as i32 {
-            libc::NLMSG_NOOP => continue,
+            libc::NLMSG_NOOP => {}
             libc::NLMSG_DONE => return true,
             msg @ RTM_NEWROUTE | msg @ RTM_DELROUTE => {
                 let (hdr, iter) = rtnetlink::read_rtmsg(&mut body)
@@ -227,27 +243,18 @@ fn dump_iterator(
                         rtnetlink::RtaMessage::Other => None,
                     })
                     .next()
-                    .expect("such messages always contain a destination address; qed");
+                    .expect(
+                        "RTM_NEWROUTE and RTM_DELROUTE messages always \
+                        contain a destination address, so if you hit this \
+                        panic, your kernel is broken; qed",
+                    );
                 match msg {
-                    RTM_NEWROUTE => {
-                        if !hash.insert(value) {
-                            continue;
-                        }
-                        queue.push_back(Event::New(value));
-                    }
-                    RTM_DELROUTE => {
-                        if !hash.remove(&value) {
-                            continue;
-                        }
-                        queue.push_back(Event::Delete(value));
-                    }
-                    _ => unreachable!(),
+                    RTM_NEWROUTE if hash.insert(value) => queue.push_back(Event::New(value)),
+                    RTM_DELROUTE if hash.remove(&value) => queue.push_back(Event::Delete(value)),
+                    _ => {}
                 }
             }
-            _ => continue,
-        }
-        if flags & libc::NLM_F_MULTI as u16 == 0 {
-            return false;
+            _ => {}
         }
     }
     return false;

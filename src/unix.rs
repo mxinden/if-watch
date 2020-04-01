@@ -74,7 +74,7 @@ impl Iterator for AddrSet {
             match watcher.next(buf, queue, hash) {
                 Status::IO(e) => return Some(Err(e)),
                 Status::Desync => {
-                    if buf.capacity() < 1 << 20 {
+                    if buf.capacity() < 1 << 19 {
                         buf.reserve(buf.capacity() * 2);
                     }
                     if watcher.resync(buf, queue, hash).is_err() {

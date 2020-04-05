@@ -7,3 +7,6 @@ keywords = ["asynchronous", "routing"]
 
 [dependencies]
 libc = "0.2.66"
+
+[target.'cfg(windows)'.dependencies]
+winapi = "0.3.8"

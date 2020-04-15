@@ -71,7 +71,7 @@ pub enum Event {
     Delete(std::net::IpAddr),
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
     #[test]

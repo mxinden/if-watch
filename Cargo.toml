@@ -9,4 +9,4 @@ keywords = ["asynchronous", "routing"]
 libc = "0.2.66"
 
 [target.'cfg(windows)'.dependencies]
-winapi = "0.3.8"
+winapi = { version = "0.3.8", features = ["netioapi", "ntdef", "ws2def"] }

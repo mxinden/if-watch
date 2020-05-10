@@ -18,9 +18,7 @@ pub(crate) struct rtmsg {
 
 // SAFETY: rtmsg can have any bit pattern
 unsafe impl FromBuffer for rtmsg {
-    fn len(&self, size: usize) -> u32 {
-        size as _
-    }
+    fn len(&self, size: usize) -> u32 { size as _ }
 }
 
 #[repr(C)]
@@ -33,14 +31,14 @@ struct rtattr {
 
 // SAFETY: rtattr can have any bit pattern
 unsafe impl FromBuffer for rtattr {
-    fn len(&self, _: usize) -> u32 {
-        self.rta_len.into()
-    }
+    fn len(&self, _: usize) -> u32 { self.rta_len.into() }
 }
 
 pub(crate) struct RtaIterator<'a>(U32AlignedBuffer<'a>);
 
-pub(crate) fn read_rtmsg<'a>(buffer: &mut U32AlignedBuffer<'a>) -> Option<(rtmsg, RtaIterator<'a>)> {
+pub(crate) fn read_rtmsg<'a>(
+    buffer: &mut U32AlignedBuffer<'a>,
+) -> Option<(rtmsg, RtaIterator<'a>)> {
     let (rtmsg, new_buffer) = buffer.read()?;
     let iterator = RtaIterator(new_buffer);
     Some((rtmsg, iterator))
@@ -53,6 +51,7 @@ pub(crate) enum RtaMessage {
 
 impl Iterator for RtaIterator<'_> {
     type Item = RtaMessage;
+
     fn next(&mut self) -> Option<RtaMessage> {
         use core::convert::TryInto;
         let (attr, buf): (rtattr, _) = self.0.read()?;

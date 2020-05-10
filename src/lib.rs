@@ -1,4 +1,5 @@
-//! IP address watching. Currently only implemented on Linux, and currently limited to synchronous operation.
+//! IP address watching. Currently only implemented on Linux, and currently
+//! limited to synchronous operation.
 
 #![deny(
     exceeding_bitshifts,

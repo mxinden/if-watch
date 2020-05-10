@@ -7,7 +7,9 @@ pub(crate) struct Fd {
 
 impl std::fmt::Debug for Fd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RoutingSocket").field("fd", &self.fd).finish()
+        f.debug_struct("RoutingSocket")
+            .field("fd", &self.fd)
+            .finish()
     }
 }
 
@@ -27,9 +29,7 @@ impl Fd {
 }
 
 impl AsRawFd for Fd {
-    fn as_raw_fd(&self) -> RawFd {
-        self.fd
-    }
+    fn as_raw_fd(&self) -> RawFd { self.fd }
 }
 
 impl Drop for Fd {

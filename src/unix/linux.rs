@@ -1,11 +1,9 @@
 #![allow(unsafe_code)]
-use std::os::unix::prelude::*;
-use std::{
-    collections::{HashSet, VecDeque},
-    io::{Error, Result},
-    mem::MaybeUninit,
-    net::IpAddr,
-};
+use std::{collections::{HashSet, VecDeque},
+          io::{Error, Result},
+          mem::MaybeUninit,
+          net::IpAddr,
+          os::unix::prelude::*};
 mod netlink;
 mod rtnetlink;
 use super::{Event, RoutingSocket, Status};
@@ -26,7 +24,7 @@ pub(crate) struct NetlinkSocket {
     fd: RoutingSocket,
     address: sockaddr_nl,
     seqnum: u32,
-    pid: u32
+    pid: u32,
 }
 
 const RTMGRP_IPV4_ROUTE: u32 = 0x40;
@@ -47,7 +45,7 @@ impl NetlinkSocket {
             let mut addrlen = SOCKADDR_NL_SIZE;
             let bind_result = libc::bind(fd.as_raw_fd(), ptr as _, addrlen);
             if bind_result < 0 {
-                return Err(Error::last_os_error());
+                return Err(Error::last_os_error())
             }
             while libc::getsockname(fd.as_raw_fd(), ptr as _, &mut addrlen) < 0 {
                 addrlen = SOCKADDR_NL_SIZE
@@ -141,30 +139,30 @@ impl NetlinkSocket {
                 return match unsafe { *libc::__errno_location() } {
                     libc::ENOBUFS => Status::Desync,
                     errno => Status::IO(std::io::Error::from_raw_os_error(errno)),
-                };
+                }
             }
             if msghdr.msg_namelen as usize != size_of!(libc::sockaddr_nl)
                 || msghdr.msg_flags & (libc::MSG_TRUNC | libc::MSG_CTRUNC) != 0
             {
-                return Status::Desync;
+                return Status::Desync
             }
             // SAFETY: we just checked that the kernel filled in the right size
             // of address
             let address = unsafe { address.assume_init() };
             if address.nl_family != libc::AF_NETLINK as u16 {
                 // wrong address family?
-                return Status::Desync;
+                return Status::Desync
             }
             if address.nl_pid != 0 {
                 // message not from kernel
-                continue;
+                continue
             }
             break Status::Data(unsafe {
                 NetlinkIterator::new(core::slice::from_raw_parts(
                     iovec.iov_base as _,
                     status as _,
                 ))
-            });
+            })
         }
     }
 
@@ -198,11 +196,11 @@ impl NetlinkSocket {
                 Status::IO(e) => return Err(e),
                 Status::Desync => {
                     queue.clear();
-                    continue;
+                    continue
                 }
                 Status::Data(iter) => {
                     if dump_iterator(queue, self.seqnum, iter, hash, self.pid) {
-                        return Ok(());
+                        return Ok(())
                     }
                 }
             }
@@ -220,11 +218,11 @@ fn dump_iterator(
     for (hdr, mut body) in iter {
         if hdr.nlmsg_pid != 0 && hdr.nlmsg_pid != pid {
             // println!("Rejecting message from wrong process {}", hdr.nlmsg_pid);
-            continue;
+            continue
         }
         if hdr.nlmsg_seq != seqnum {
             // println!("Got bogus sequence number {}", hdr.nlmsg_seq);
-            continue;
+            continue
         }
         match hdr.nlmsg_type as i32 {
             libc::NLMSG_NOOP => {}
@@ -244,9 +242,8 @@ fn dump_iterator(
                     })
                     .next()
                     .expect(
-                        "RTM_NEWROUTE and RTM_DELROUTE messages always \
-                        contain a destination address, so if you hit this \
-                        panic, your kernel is broken; qed",
+                        "RTM_NEWROUTE and RTM_DELROUTE messages always contain a destination \
+                         address, so if you hit this panic, your kernel is broken; qed",
                     );
                 match msg {
                     RTM_NEWROUTE if hash.insert(value) => queue.push_back(Event::New(value)),
@@ -257,13 +254,11 @@ fn dump_iterator(
             _ => {}
         }
     }
-    return false;
+    return false
 }
 
 impl AsRawFd for NetlinkSocket {
-    fn as_raw_fd(&self) -> RawFd {
-        self.fd.as_raw_fd()
-    }
+    fn as_raw_fd(&self) -> RawFd { self.fd.as_raw_fd() }
 }
 
 #[cfg(test)]
@@ -300,7 +295,7 @@ mod tests {
             for (hdr, mut body) in iter {
                 let flags = hdr.nlmsg_flags;
                 if hdr.nlmsg_seq != 0 && hdr.nlmsg_seq != sock.seqnum {
-                    continue;
+                    continue
                 }
                 match hdr.nlmsg_type as i32 {
                     libc::NLMSG_NOOP => continue,
@@ -314,8 +309,8 @@ mod tests {
                         match (hdr.rtm_family as i32, hdr.rtm_table, hdr.rtm_type) {
                             (libc::AF_INET, libc::RT_TABLE_LOCAL, libc::RTN_LOCAL) => {}
                             (libc::AF_INET6, libc::RT_TABLE_LOCAL, libc::RTN_LOCAL) => {}
-                            (libc::AF_INET, _, _) => continue,
-                            (libc::AF_INET6, _, _) => continue,
+                            (libc::AF_INET, ..) => continue,
+                            (libc::AF_INET6, ..) => continue,
                             _ => unreachable!(),
                         }
                         for i in iter.filter_map(|e| match e {
@@ -341,7 +336,7 @@ mod tests {
                     _ => panic!("bad messge from kernel: type {:?}", hdr.nlmsg_type),
                 }
                 if flags & libc::NLM_F_MULTI as u16 == 0 {
-                    break;
+                    break
                 }
             }
         }

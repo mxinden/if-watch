@@ -83,9 +83,7 @@ impl Drop for RouteChangeNotification {
 mod tests {
     use super::*;
 
-    fn get_current_thread_id() -> DWORD {
-        unsafe { GetCurrentThreadId() }
-    }
+    fn get_current_thread_id() -> DWORD { unsafe { GetCurrentThreadId() } }
     #[test]
     fn does_not_hang_forever() {
         println!("Current thread ID is {}", get_current_thread_id());

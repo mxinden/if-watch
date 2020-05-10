@@ -1,17 +1,18 @@
 macro_rules! size_of {
-    ($t: ty) => {
+    ($t:ty) => {
         ::core::mem::size_of::<$t>()
     };
 }
 
 macro_rules! align_of {
-    ($t: ty) => {
+    ($t:ty) => {
         ::core::mem::align_of::<$t>()
     };
 }
 
 use super::Event;
-use std::{collections::HashSet, collections::VecDeque, net::IpAddr};
+use std::{collections::{HashSet, VecDeque},
+          net::IpAddr};
 mod aligned_buffer;
 mod fd;
 
@@ -60,6 +61,7 @@ impl AddrSet {
 
 impl Iterator for AddrSet {
     type Item = std::io::Result<Event>;
+
     fn next(&mut self) -> Option<Self::Item> {
         let Self {
             watcher,
@@ -68,7 +70,7 @@ impl Iterator for AddrSet {
             queue,
         } = self;
         if let Some(event) = queue.pop_front() {
-            return Some(Ok(event));
+            return Some(Ok(event))
         }
         loop {
             match watcher.next(buf, queue, hash) {
@@ -78,12 +80,12 @@ impl Iterator for AddrSet {
                         buf.reserve(buf.capacity() * 2);
                     }
                     if watcher.resync(buf, queue, hash).is_err() {
-                        continue;
+                        continue
                     }
                 }
                 Status::Data(()) => {
                     if let Some(event) = queue.pop_front() {
-                        return Some(Ok(event));
+                        return Some(Ok(event))
                     }
                 }
             }

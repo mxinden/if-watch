@@ -8,5 +8,16 @@ keywords = ["asynchronous", "routing"]
 [dependencies]
 libc = "0.2.66"
 
+[target.'cfg(unix)'.dependencies]
+async-io = "1.2.0"
+
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.8", features = ["netioapi", "ntdef", "ws2def"] }
+futures-lite = "1.11.2"
+if-addrs = "0.6.5"
+winapi = { version = "0.3.8", features = ["netioapi", "ntdef", "winerror", "ws2def"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+winapi = { version = "0.3.8", features = ["processthreadsapi", "synchapi"] }
+
+[dev-dependencies]
+futures-lite = "1.11.2"

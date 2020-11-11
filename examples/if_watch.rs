@@ -1,4 +1,4 @@
-use ip_watch::IfWatcher;
+use if_watch::IfWatcher;
 
 fn main() {
     futures_lite::future::block_on(async {

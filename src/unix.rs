@@ -10,11 +10,14 @@ macro_rules! align_of {
     };
 }
 
-use super::Event;
-use std::{collections::{HashSet, VecDeque},
-          net::IpAddr};
+use crate::IfEvent;
+use async_io::Async;
+use ipnet::IpNet;
+use std::collections::{HashSet, VecDeque};
+use std::io::Result;
+use std::os::unix::prelude::*;
+
 mod aligned_buffer;
-mod fd;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -24,6 +27,29 @@ type Watcher = linux::NetlinkSocket;
 mod bsd;
 
 #[derive(Debug)]
+struct Fd(RawFd);
+
+impl Fd {
+    pub fn new(fd: RawFd) -> Result<Async<Self>> {
+        Async::new(Self(fd))
+    }
+}
+
+impl AsRawFd for Fd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0
+    }
+}
+
+impl Drop for Fd {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.0);
+        }
+    }
+}
+
+#[derive(Debug)]
 #[must_use]
 enum Status<T> {
     IO(std::io::Error),
@@ -31,20 +57,18 @@ enum Status<T> {
     Data(T),
 }
 
-use fd::Fd as RoutingSocket;
-
 /// An address set/watcher
 #[derive(Debug)]
-pub struct AddrSet {
-    hash: HashSet<IpAddr>,
+pub struct IfWatcher {
+    hash: HashSet<IpNet>,
     watcher: Watcher,
     buf: Vec<u64>,
-    queue: VecDeque<Event>,
+    queue: VecDeque<IfEvent>,
 }
 
-impl AddrSet {
+impl IfWatcher {
     /// Create a watcher
-    pub async fn new() -> std::io::Result<Self> {
+    pub async fn new() -> Result<Self> {
         let mut hash = HashSet::new();
         let mut watcher = Watcher::new()?;
         let mut buf = Vec::with_capacity(1 << 16);
@@ -59,7 +83,7 @@ impl AddrSet {
     }
 
     /// Returns a future for the next event.
-    pub async fn next(&mut self) -> std::io::Result<Event> {
+    pub async fn next(&mut self) -> Result<IfEvent> {
         let Self {
             watcher,
             buf,
@@ -67,7 +91,7 @@ impl AddrSet {
             queue,
         } = self;
         if let Some(event) = queue.pop_front() {
-            return Ok(event)
+            return Ok(event);
         }
         loop {
             match watcher.next(buf, queue, hash).await {
@@ -77,12 +101,12 @@ impl AddrSet {
                         buf.reserve(buf.capacity() * 2);
                     }
                     if watcher.resync(buf, queue, hash).await.is_err() {
-                        continue
+                        continue;
                     }
                 }
                 Status::Data(()) => {
                     if let Some(event) = queue.pop_front() {
-                        return Ok(event)
+                        return Ok(event);
                     }
                 }
             }

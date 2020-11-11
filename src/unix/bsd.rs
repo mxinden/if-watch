@@ -1,6 +1,10 @@
-use std::{io::{Error, ErrorKind, Result},
-          os::{raw::{c_int, c_short, c_uint, c_ulong, c_ushort},
-               unix::io::{AsRawFd, RawFd}}};
+use std::{
+    io::{Error, ErrorKind, Result},
+    os::{
+        raw::{c_int, c_short, c_uint, c_ulong, c_ushort},
+        unix::io::{AsRawFd, RawFd},
+    },
+};
 
 use super::aligned_buffer::{FromBuffer, U32AlignedBuffer as U64AlignedBuffer};
 
@@ -113,7 +117,7 @@ impl<'a> Iterator for Routes<'a> {
         loop {
             let hdr: rt_msghdr = self.buffer.read()?;
             if hdr.rtm_version != RTM_VERSION {
-                continue
+                continue;
             }
         }
     }

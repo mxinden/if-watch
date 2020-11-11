@@ -1,75 +1,46 @@
-//! IP address watching. Currently only implemented on Linux, and currently
-//! limited to synchronous operation.
+//! IP address watching.
+#![deny(missing_docs)]
+#![deny(warnings)]
 
-#![deny(
-    arithmetic_overflow,
-    invalid_type_param_default,
-    missing_fragment_specifier,
-    mutable_transmutes,
-    no_mangle_const_items,
-    overflowing_literals,
-    patterns_in_fns_without_body,
-    pub_use_of_private_extern_crate,
-    unknown_crate_types,
-    const_err,
-    order_dependent_trait_objects,
-    illegal_floating_point_literal_pattern,
-    improper_ctypes,
-    late_bound_lifetime_arguments,
-    non_camel_case_types,
-    non_shorthand_field_patterns,
-    non_snake_case,
-    non_upper_case_globals,
-    no_mangle_generic_items,
-    path_statements,
-    private_in_public,
-    stable_features,
-    type_alias_bounds,
-    tyvar_behind_raw_pointer,
-    unconditional_recursion,
-    unused,
-    unused_allocation,
-    unused_comparisons,
-    unused_mut,
-    unreachable_pub,
-    anonymous_parameters,
-    missing_copy_implementations,
-    missing_debug_implementations,
-    missing_docs,
-    single_use_lifetimes,
-    trivial_casts,
-    trivial_numeric_casts,
-    unsafe_code,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications,
-    clippy::all
-)]
-#![forbid(
-    intra_doc_link_resolution_failure,
-    safe_packed_borrows,
-    while_true,
-    elided_lifetimes_in_paths,
-    bare_trait_objects
-)]
-#[cfg(unix)]
-mod unix;
-#[cfg(unix)]
-pub use unix::*;
-#[cfg(windows)]
-mod windows;
-#[cfg(windows)]
-pub use windows::*;
+use ipnet::IpNet;
+use std::io::Result;
+
 #[cfg(not(any(unix, windows)))]
 compile_error!("Only Unix and Windows are supported");
 
-/// An address change event
-#[derive(Copy, Clone, Hash, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub enum Event {
-    /// A new local address has been added
-    New(std::net::IpAddr),
-    /// A local address has been deleted
-    Delete(std::net::IpAddr),
+#[cfg(unix)]
+mod unix;
+#[cfg(windows)]
+mod windows;
+
+#[cfg(unix)]
+use unix as platform_impl;
+#[cfg(windows)]
+use windows as platform_impl;
+
+/// An address change event.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum IfEvent {
+    /// A new local address has been added.
+    Up(IpNet),
+    /// A local address has been deleted.
+    Down(IpNet),
+}
+
+/// Watches for interface changes.
+#[derive(Debug)]
+pub struct IfWatcher(platform_impl::IfWatcher);
+
+impl IfWatcher {
+    /// Create a watcher
+    pub async fn new() -> Result<Self> {
+        Ok(Self(platform_impl::IfWatcher::new().await?))
+    }
+
+    /// Returns a future for the next event.
+    pub async fn next(&mut self) -> Result<IfEvent> {
+        self.0.next().await
+    }
 }
 
 #[cfg(test)]
@@ -81,15 +52,15 @@ mod tests {
     #[test]
     fn test_ip_watch() {
         futures_lite::future::block_on(async {
-            let mut set = AddrSet::new().await.unwrap();
+            let mut set = IfWatcher::new().await.unwrap();
             poll_fn(|cx| loop {
                 let next = set.next();
                 futures_lite::pin!(next);
                 if let Poll::Ready(Ok(ev)) = Pin::new(&mut next).poll(cx) {
                     println!("Got event {:?}", ev);
-                    continue
+                    continue;
                 }
-                return Poll::Ready(())
+                return Poll::Ready(());
             })
             .await;
         });
@@ -99,9 +70,9 @@ mod tests {
     fn test_is_send() {
         futures_lite::future::block_on(async {
             fn is_send<T: Send>(_: T) {}
-            is_send(AddrSet::new());
-            is_send(AddrSet::new().await.unwrap());
-            is_send(AddrSet::new().await.unwrap().next());
+            is_send(IfWatcher::new());
+            is_send(IfWatcher::new().await.unwrap());
+            is_send(IfWatcher::new().await.unwrap().next());
         });
     }
 }

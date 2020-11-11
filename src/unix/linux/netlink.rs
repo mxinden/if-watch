@@ -27,5 +27,7 @@ impl<'a> NetlinkIterator<'a> {
 impl<'a> Iterator for NetlinkIterator<'a> {
     type Item = (libc::nlmsghdr, U32AlignedBuffer<'a>);
 
-    fn next(&mut self) -> Option<Self::Item> { self.0.read() }
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.read()
+    }
 }

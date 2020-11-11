@@ -50,7 +50,7 @@ impl<'a> U32AlignedBuffer<'a> {
         // Check that the length is sufficiently large. A negative length is
         // obviously not sufficiently large.
         if self.len < size {
-            return None
+            return None;
         }
         // It is now safe to read the value of `self.ptr`. The contract of
         // `FromBuffer` guarantees that any aligned sequence of bytes of length
@@ -63,7 +63,7 @@ impl<'a> U32AlignedBuffer<'a> {
         let len = output.len(self.len as _) as i32;
         // Check that `output` is valid.
         if len < size || len > self.len {
-            return None
+            return None;
         }
         let buffer = Self {
             len: len - size,

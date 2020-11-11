@@ -1,14 +1,18 @@
-#![allow(unsafe_code)]
+use crate::unix::{Fd, Status};
+use crate::IfEvent;
 use async_io::Async;
-use std::{collections::{HashSet, VecDeque},
-          io::{Error, Result},
-          mem::MaybeUninit,
-          net::IpAddr,
-          os::unix::prelude::*};
+use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use netlink::NetlinkIterator;
+use std::{
+    collections::{HashSet, VecDeque},
+    io::{Error, Result},
+    mem::MaybeUninit,
+    net::IpAddr,
+    os::unix::prelude::*,
+};
+
 mod netlink;
 mod rtnetlink;
-use super::{Event, RoutingSocket, Status};
-pub(crate) use netlink::NetlinkIterator;
 
 #[allow(non_camel_case_types)]
 #[derive(Debug)]
@@ -21,8 +25,8 @@ struct sockaddr_nl {
 }
 
 #[derive(Debug)]
-pub(crate) struct NetlinkSocket {
-    fd: Async<RoutingSocket>,
+pub struct NetlinkSocket {
+    fd: Async<Fd>,
     address: sockaddr_nl,
     seqnum: u32,
     pid: u32,
@@ -35,8 +39,18 @@ const RTM_DELROUTE: i32 = libc::RTM_DELROUTE as _;
 const SOCKADDR_NL_SIZE: libc::socklen_t = size_of!(sockaddr_nl) as _;
 
 impl NetlinkSocket {
-    pub(crate) fn new() -> Result<Self> {
-        let fd = Async::new(RoutingSocket::new()?)?;
+    pub fn new() -> Result<Self> {
+        let fd = unsafe {
+            libc::socket(
+                libc::PF_NETLINK,
+                libc::SOCK_RAW | libc::SOCK_CLOEXEC,
+                libc::NETLINK_ROUTE,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let fd = Fd::new(fd)?;
         unsafe {
             let _: [u8; SOCKADDR_NL_SIZE as usize - size_of!(libc::sockaddr_nl)] = [];
             let mut address: sockaddr_nl = std::mem::zeroed();
@@ -46,7 +60,7 @@ impl NetlinkSocket {
             let mut addrlen = SOCKADDR_NL_SIZE;
             let bind_result = libc::bind(fd.as_raw_fd(), ptr as _, addrlen);
             if bind_result < 0 {
-                return Err(Error::last_os_error())
+                return Err(Error::last_os_error());
             }
             while libc::getsockname(fd.as_raw_fd(), ptr as _, &mut addrlen) < 0 {
                 addrlen = SOCKADDR_NL_SIZE
@@ -64,7 +78,7 @@ impl NetlinkSocket {
         }
     }
 
-    pub(crate) async fn send(&mut self) -> Result<()> {
+    pub async fn send(&mut self) -> Result<()> {
         #[repr(C)]
         struct Nlmsg {
             hdr: libc::nlmsghdr,
@@ -150,24 +164,24 @@ impl NetlinkSocket {
                                 return Err(std::io::Error::from_raw_os_error(libc::EAGAIN))
                             }
                             errno => Status::IO(std::io::Error::from_raw_os_error(errno)),
-                        }))
+                        }));
                     }
 
                     if msghdr.msg_namelen as usize != size_of!(libc::sockaddr_nl)
                         || msghdr.msg_flags & (libc::MSG_TRUNC | libc::MSG_CTRUNC) != 0
                     {
-                        return Ok(Some(Status::Desync))
+                        return Ok(Some(Status::Desync));
                     }
                     // SAFETY: we just checked that the kernel filled in the right size
                     // of address
                     let address = unsafe { address.assume_init() };
                     if address.nl_family != libc::AF_NETLINK as u16 {
                         // wrong address family?
-                        return Ok(Some(Status::Desync))
+                        return Ok(Some(Status::Desync));
                     }
                     if address.nl_pid != 0 {
                         // message not from kernel
-                        return Ok(None)
+                        return Ok(None);
                     }
                     Ok(Some(Status::Data(unsafe {
                         NetlinkIterator::new(core::slice::from_raw_parts(
@@ -178,7 +192,7 @@ impl NetlinkSocket {
                 })
                 .await;
             if let Ok(Some(status)) = res {
-                return status
+                return status;
             }
         }
     }
@@ -186,8 +200,8 @@ impl NetlinkSocket {
     pub(super) async fn next(
         &mut self,
         buf: &mut Vec<u64>,
-        queue: &mut VecDeque<Event>,
-        hash: &mut HashSet<IpAddr>,
+        queue: &mut VecDeque<IfEvent>,
+        hash: &mut HashSet<IpNet>,
     ) -> Status<()> {
         let flags = libc::MSG_TRUNC | libc::MSG_CMSG_CLOEXEC;
         match self.recv(buf, flags).await {
@@ -200,11 +214,11 @@ impl NetlinkSocket {
         }
     }
 
-    pub(crate) async fn resync(
+    pub async fn resync(
         &mut self,
         buf: &mut Vec<u64>,
-        queue: &mut VecDeque<Event>,
-        hash: &mut HashSet<IpAddr>,
+        queue: &mut VecDeque<IfEvent>,
+        hash: &mut HashSet<IpNet>,
     ) -> Result<()> {
         let flags = libc::MSG_TRUNC | libc::MSG_CMSG_CLOEXEC;
         self.send().await?;
@@ -213,11 +227,11 @@ impl NetlinkSocket {
                 Status::IO(e) => return Err(e),
                 Status::Desync => {
                     queue.clear();
-                    continue
+                    continue;
                 }
                 Status::Data(iter) => {
                     if dump_iterator(queue, self.seqnum, iter, hash, self.pid) {
-                        return Ok(())
+                        return Ok(());
                     }
                 }
             }
@@ -226,20 +240,20 @@ impl NetlinkSocket {
 }
 
 fn dump_iterator(
-    queue: &mut VecDeque<Event>,
+    queue: &mut VecDeque<IfEvent>,
     seqnum: u32,
     iter: NetlinkIterator<'_>,
-    hash: &mut HashSet<IpAddr>,
+    hash: &mut HashSet<IpNet>,
     pid: u32,
 ) -> bool {
     for (hdr, mut body) in iter {
         if hdr.nlmsg_pid != 0 && hdr.nlmsg_pid != pid {
             // println!("Rejecting message from wrong process {}", hdr.nlmsg_pid);
-            continue
+            continue;
         }
         if hdr.nlmsg_seq != seqnum {
             // println!("Got bogus sequence number {}", hdr.nlmsg_seq);
-            continue
+            continue;
         }
         match hdr.nlmsg_type as i32 {
             libc::NLMSG_NOOP => {}
@@ -252,7 +266,7 @@ fn dump_iterator(
                     (libc::AF_INET6, libc::RT_TABLE_LOCAL, libc::RTN_LOCAL) => {}
                     _ => continue,
                 }
-                let value = iter
+                let ip = iter
                     .filter_map(|e| match e {
                         rtnetlink::RtaMessage::IPAddr(e) => Some(e),
                         rtnetlink::RtaMessage::Other => None,
@@ -262,20 +276,31 @@ fn dump_iterator(
                         "RTM_NEWROUTE and RTM_DELROUTE messages always contain a destination \
                          address, so if you hit this panic, your kernel is broken; qed",
                     );
+                let prefix = hdr.rtm_dst_len;
+                let ipnet = match ip {
+                    IpAddr::V4(ip) => {
+                        IpNet::V4(Ipv4Net::new(ip, prefix).expect("kernel sent valid prefix"))
+                    }
+                    IpAddr::V6(ip) => {
+                        IpNet::V6(Ipv6Net::new(ip, prefix).expect("kernel sent valid prefix"))
+                    }
+                };
                 match msg {
-                    RTM_NEWROUTE if hash.insert(value) => queue.push_back(Event::New(value)),
-                    RTM_DELROUTE if hash.remove(&value) => queue.push_back(Event::Delete(value)),
+                    RTM_NEWROUTE if hash.insert(ipnet) => queue.push_back(IfEvent::Up(ipnet)),
+                    RTM_DELROUTE if hash.remove(&ipnet) => queue.push_back(IfEvent::Down(ipnet)),
                     _ => {}
                 }
             }
             _ => {}
         }
     }
-    return false
+    false
 }
 
 impl AsRawFd for NetlinkSocket {
-    fn as_raw_fd(&self) -> RawFd { self.fd.as_raw_fd() }
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd.as_raw_fd()
+    }
 }
 
 #[cfg(test)]
@@ -315,7 +340,7 @@ mod tests {
                 for (hdr, mut body) in iter {
                     let flags = hdr.nlmsg_flags;
                     if hdr.nlmsg_seq != 0 && hdr.nlmsg_seq != sock.seqnum {
-                        continue
+                        continue;
                     }
                     match hdr.nlmsg_type as i32 {
                         libc::NLMSG_NOOP => continue,
@@ -357,7 +382,7 @@ mod tests {
                         _ => panic!("bad messge from kernel: type {:?}", hdr.nlmsg_type),
                     }
                     if flags & libc::NLM_F_MULTI as u16 == 0 {
-                        break
+                        break;
                     }
                 }
             }

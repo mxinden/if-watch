@@ -1,31 +1,35 @@
-#![allow(unsafe_code)]
-#[cfg(not(windows))]
-compile_error!("this module only supports Windows!");
-
-use crate::Event;
+use crate::IfEvent;
 use futures_lite::future::poll_fn;
-use std::{collections::{HashSet, VecDeque},
-          net::IpAddr,
-          sync::{atomic::{AtomicBool, Ordering},
-                 Arc},
-          task::{Poll, Waker}};
-use winapi::shared::{netioapi::{CancelMibChangeNotify2, NotifyIpInterfaceChange,
-                                MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE},
-                     ntdef::{HANDLE, PVOID},
-                     winerror::NO_ERROR,
-                     ws2def::AF_UNSPEC};
+use if_addrs::IfAddr;
+use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    task::{Poll, Waker},
+};
+use winapi::shared::{
+    netioapi::{
+        CancelMibChangeNotify2, NotifyIpInterfaceChange, MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE,
+    },
+    ntdef::{HANDLE, PVOID},
+    winerror::NO_ERROR,
+    ws2def::AF_UNSPEC,
+};
 
 /// An address set/watcher
 #[derive(Debug)]
-pub struct AddrSet {
-    addrs: HashSet<IpAddr>,
-    queue: VecDeque<Event>,
+pub struct IfWatcher {
+    addrs: HashSet<IpNet>,
+    queue: VecDeque<IfEvent>,
     waker: Option<Waker>,
     notif: RouteChangeNotification,
     resync: Arc<AtomicBool>,
 }
 
-impl AddrSet {
+impl IfWatcher {
     /// Create a watcher
     pub async fn new() -> std::io::Result<Self> {
         let resync = Arc::new(AtomicBool::new(true));
@@ -43,15 +47,19 @@ impl AddrSet {
     fn resync(&mut self) -> std::io::Result<()> {
         let addrs = if_addrs::get_if_addrs()?;
         for old_addr in self.addrs.clone() {
-            if addrs.iter().find(|addr| addr.ip() == old_addr).is_none() {
+            if addrs
+                .iter()
+                .find(|addr| addr.ip() == old_addr.addr())
+                .is_none()
+            {
                 self.addrs.remove(&old_addr);
-                self.queue.push_back(Event::Delete(old_addr));
+                self.queue.push_back(IfEvent::Down(old_addr));
             }
         }
         for new_addr in addrs {
-            let ip = new_addr.ip();
-            if self.addrs.insert(ip) {
-                self.queue.push_back(Event::New(ip));
+            let ipnet = ifaddr_to_ipnet(new_addr.addr);
+            if self.addrs.insert(ipnet) {
+                self.queue.push_back(IfEvent::Up(ipnet));
             }
         }
         if let Some(waker) = self.waker.take() {
@@ -61,12 +69,12 @@ impl AddrSet {
     }
 
     /// Returns a future for the next event.
-    pub async fn next(&mut self) -> std::io::Result<Event> {
+    pub async fn next(&mut self) -> std::io::Result<IfEvent> {
         poll_fn(|cx| {
             self.waker = Some(cx.waker().clone());
             if self.resync.load(Ordering::SeqCst) {
                 if let Err(error) = self.resync() {
-                    return Poll::Ready(Err(error))
+                    return Poll::Ready(Err(error));
                 }
             }
             if let Some(event) = self.queue.pop_front() {
@@ -76,6 +84,23 @@ impl AddrSet {
             }
         })
         .await
+    }
+}
+
+fn ifaddr_to_ipnet(addr: IfAddr) -> IpNet {
+    match addr {
+        IfAddr::V4(ip) => {
+            let prefix_len = (!u32::from_be_bytes(ip.netmask.octets())).leading_zeros();
+            IpNet::V4(
+                Ipv4Net::new(ip.ip, prefix_len as u8).expect("if_addrs returned a valid prefix"),
+            )
+        }
+        IfAddr::V6(ip) => {
+            let prefix_len = (!u128::from_be_bytes(ip.netmask.octets())).leading_zeros();
+            IpNet::V6(
+                Ipv6Net::new(ip.ip, prefix_len as u8).expect("if_addrs returned a valid prefix"),
+            )
+        }
     }
 }
 
@@ -129,23 +154,3 @@ impl Drop for RouteChangeNotification {
 }
 
 unsafe impl Send for RouteChangeNotification {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use winapi::{shared::minwindef::DWORD,
-                 um::{processthreadsapi::GetCurrentThreadId, synchapi::SleepEx}};
-
-    fn get_current_thread_id() -> DWORD { unsafe { GetCurrentThreadId() } }
-    #[test]
-    fn does_not_hang_forever() {
-        println!("Current thread ID is {}", get_current_thread_id());
-        let _i = RouteChangeNotification::new(Box::new(|_, _| {
-            println!("Got a notification on thread {}", get_current_thread_id())
-        }))
-        .unwrap();
-        unsafe {
-            SleepEx(1000000, 1);
-        }
-    }
-}

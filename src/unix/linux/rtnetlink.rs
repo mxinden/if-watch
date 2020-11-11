@@ -18,7 +18,9 @@ pub(crate) struct rtmsg {
 
 // SAFETY: rtmsg can have any bit pattern
 unsafe impl FromBuffer for rtmsg {
-    fn len(&self, size: usize) -> u32 { size as _ }
+    fn len(&self, size: usize) -> u32 {
+        size as _
+    }
 }
 
 #[repr(C)]
@@ -31,7 +33,9 @@ struct rtattr {
 
 // SAFETY: rtattr can have any bit pattern
 unsafe impl FromBuffer for rtattr {
-    fn len(&self, _: usize) -> u32 { self.rta_len.into() }
+    fn len(&self, _: usize) -> u32 {
+        self.rta_len.into()
+    }
 }
 
 pub(crate) struct RtaIterator<'a>(U32AlignedBuffer<'a>);

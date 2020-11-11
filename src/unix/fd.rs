@@ -19,7 +19,7 @@ impl Fd {
         #[cfg(target_os = "linux")]
         let fd = unsafe { socket(libc::PF_NETLINK, FLAGS, libc::NETLINK_ROUTE) };
         #[cfg(not(target_os = "linux"))]
-        let fd = unsafe { socket(libc::PF_ROUTE, FLAGS | libc::SOCK_NONBLOCK, libc::AF_UNSPEC) };
+        let fd = unsafe { socket(libc::PF_ROUTE, FLAGS, libc::AF_UNSPEC) };
         if fd < 0 {
             Err(std::io::Error::last_os_error())
         } else {

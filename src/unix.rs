@@ -44,12 +44,12 @@ pub struct AddrSet {
 
 impl AddrSet {
     /// Create a watcher
-    pub fn new() -> std::io::Result<Self> {
+    pub async fn new() -> std::io::Result<Self> {
         let mut hash = HashSet::new();
         let mut watcher = Watcher::new()?;
         let mut buf = Vec::with_capacity(1 << 16);
         let mut queue = VecDeque::new();
-        watcher.resync(&mut buf, &mut queue, &mut hash)?;
+        watcher.resync(&mut buf, &mut queue, &mut hash).await?;
         Ok(Self {
             hash,
             watcher,
@@ -57,12 +57,9 @@ impl AddrSet {
             queue,
         })
     }
-}
 
-impl Iterator for AddrSet {
-    type Item = std::io::Result<Event>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Returns a future for the next event.
+    pub async fn next(&mut self) -> std::io::Result<Event> {
         let Self {
             watcher,
             buf,
@@ -70,22 +67,22 @@ impl Iterator for AddrSet {
             queue,
         } = self;
         if let Some(event) = queue.pop_front() {
-            return Some(Ok(event))
+            return Ok(event)
         }
         loop {
-            match watcher.next(buf, queue, hash) {
-                Status::IO(e) => return Some(Err(e)),
+            match watcher.next(buf, queue, hash).await {
+                Status::IO(e) => return Err(e),
                 Status::Desync => {
                     if buf.capacity() < 1 << 19 {
                         buf.reserve(buf.capacity() * 2);
                     }
-                    if watcher.resync(buf, queue, hash).is_err() {
+                    if watcher.resync(buf, queue, hash).await.is_err() {
                         continue
                     }
                 }
                 Status::Data(()) => {
                     if let Some(event) = queue.pop_front() {
-                        return Some(Ok(event))
+                        return Ok(event)
                     }
                 }
             }

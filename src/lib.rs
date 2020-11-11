@@ -2,7 +2,7 @@
 //! limited to synchronous operation.
 
 #![deny(
-    exceeding_bitshifts,
+    arithmetic_overflow,
     invalid_type_param_default,
     missing_fragment_specifier,
     mutable_transmutes,
@@ -72,15 +72,26 @@ pub enum Event {
     Delete(std::net::IpAddr),
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(test)]
 mod tests {
     use super::*;
+    use futures_lite::future::poll_fn;
+    use std::{future::Future, pin::Pin, task::Poll};
+
     #[test]
-    fn it_works() {
-        let set = AddrSet::new();
-        println!("Got event {:?}", set);
-        for i in set.unwrap() {
-            println!("Got event {:?}", i.unwrap())
-        }
+    fn test_ip_watch() {
+        futures_lite::future::block_on(async {
+            let mut set = AddrSet::new().await.unwrap();
+            poll_fn(|cx| loop {
+                let next = set.next();
+                futures_lite::pin!(next);
+                if let Poll::Ready(Ok(ev)) = Pin::new(&mut next).poll(cx) {
+                    println!("Got event {:?}", ev);
+                    continue
+                }
+                return Poll::Ready(())
+            })
+            .await;
+        });
     }
 }

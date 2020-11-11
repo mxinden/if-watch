@@ -94,4 +94,14 @@ mod tests {
             .await;
         });
     }
+
+    #[test]
+    fn test_is_send() {
+        futures_lite::future::block_on(async {
+            fn is_send<T: Send>(_: T) {}
+            is_send(AddrSet::new());
+            is_send(AddrSet::new().await.unwrap());
+            is_send(AddrSet::new().await.unwrap().next());
+        });
+    }
 }

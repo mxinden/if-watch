@@ -88,7 +88,7 @@ struct RouteChangeNotification {
 }
 
 /// The type of route change callbacks
-type RouteChangeCallback = Box<dyn FnMut(&MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) + Send>;
+type RouteChangeCallback = Box<dyn Fn(&MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) + Send>;
 impl RouteChangeNotification {
     /// Register for route change notifications
     fn new(cb: RouteChangeCallback) -> std::io::Result<Self> {
@@ -98,7 +98,7 @@ impl RouteChangeNotification {
             Row: *mut MIB_IPINTERFACE_ROW,
             NotificationType: MIB_NOTIFICATION_TYPE,
         ) {
-            (**(CallerContext as *mut RouteChangeCallback))(&*Row, NotificationType)
+            (**(CallerContext as *const RouteChangeCallback))(&*Row, NotificationType)
         }
         let mut handle = core::ptr::null_mut();
         let callback = Box::into_raw(Box::new(cb));
@@ -127,6 +127,8 @@ impl Drop for RouteChangeNotification {
         }
     }
 }
+
+unsafe impl Send for RouteChangeNotification {}
 
 #[cfg(test)]
 mod tests {

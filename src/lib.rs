@@ -37,6 +37,11 @@ impl IfWatcher {
         Ok(Self(platform_impl::IfWatcher::new().await?))
     }
 
+    /// Iterate over current networks.
+    pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
+        self.0.iter()
+    }
+
     /// Returns a future for the next event.
     pub async fn next(&mut self) -> Result<IfEvent> {
         self.0.next().await

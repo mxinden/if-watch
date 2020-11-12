@@ -82,6 +82,10 @@ impl IfWatcher {
         })
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
+        self.hash.iter()
+    }
+
     /// Returns a future for the next event.
     pub async fn next(&mut self) -> Result<IfEvent> {
         let Self {

@@ -68,6 +68,10 @@ impl IfWatcher {
         Ok(())
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
+        self.addrs.iter()
+    }
+
     /// Returns a future for the next event.
     pub async fn next(&mut self) -> std::io::Result<IfEvent> {
         poll_fn(|cx| {

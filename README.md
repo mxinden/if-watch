@@ -11,4 +11,4 @@ Got event Ok(Up(fe80::cef9:e4ff:fe9e:b23b/128))
 ```
 
 ## License
-Apache + MIT
+MIT OR Apache-2.0

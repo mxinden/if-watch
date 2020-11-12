@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["David Craven <david@craven.ch>", "Parity Technologies Limited <admin@parity.io>"]
 edition = "2018"
 keywords = ["asynchronous", "routing"]
+license = "MIT OR Apache-2.0"
+description = "crossplatform asynchronous network watcher"
+repository = "https://github.com/dvc94ch/if-watch"
 
 [dependencies]
 futures-lite = "1.11.2"

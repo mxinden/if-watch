@@ -17,5 +17,6 @@ libc = "0.2.66"
 async-io = "1.2.0"
 
 [target.'cfg(windows)'.dependencies]
+futures = { version = "0.3.8", default-features = false }
 if-addrs = "0.6.5"
 winapi = { version = "0.3.8", features = ["netioapi", "ntdef", "winerror", "ws2def"] }

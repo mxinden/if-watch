@@ -1,4 +1,5 @@
 use crate::IfEvent;
+use futures::task::AtomicWaker;
 use futures_lite::future::poll_fn;
 use if_addrs::IfAddr;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
@@ -8,7 +9,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    task::{Poll, Waker},
+    task::Poll,
 };
 use winapi::shared::{
     netioapi::{
@@ -24,8 +25,8 @@ use winapi::shared::{
 pub struct IfWatcher {
     addrs: HashSet<IpNet>,
     queue: VecDeque<IfEvent>,
-    waker: Option<Waker>,
     notif: RouteChangeNotification,
+    waker: Arc<AtomicWaker>,
     resync: Arc<AtomicBool>,
 }
 
@@ -33,13 +34,15 @@ impl IfWatcher {
     /// Create a watcher
     pub async fn new() -> std::io::Result<Self> {
         let resync = Arc::new(AtomicBool::new(true));
+        let waker = Arc::new(AtomicWaker::new());
         Ok(Self {
             addrs: Default::default(),
             queue: Default::default(),
-            waker: Default::default(),
+            waker: waker.clone(),
             resync: resync.clone(),
             notif: RouteChangeNotification::new(Box::new(move |_, _| {
-                resync.store(true, Ordering::SeqCst);
+                resync.store(true, Ordering::Relaxed);
+                waker.wake();
             }))?,
         })
     }
@@ -62,9 +65,6 @@ impl IfWatcher {
                 self.queue.push_back(IfEvent::Up(ipnet));
             }
         }
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
         Ok(())
     }
 
@@ -75,8 +75,8 @@ impl IfWatcher {
     /// Returns a future for the next event.
     pub async fn next(&mut self) -> std::io::Result<IfEvent> {
         poll_fn(|cx| {
-            self.waker = Some(cx.waker().clone());
-            if self.resync.load(Ordering::SeqCst) {
+            self.waker.register(cx.waker());
+            if self.resync.swap(false, Ordering::Relaxed) {
                 if let Err(error) = self.resync() {
                     return Poll::Ready(Err(error));
                 }

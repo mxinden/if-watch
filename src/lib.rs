@@ -2,7 +2,7 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
-use ipnet::IpNet;
+pub use ipnet::IpNet;
 use std::io::Result;
 
 #[cfg(not(any(unix, windows)))]

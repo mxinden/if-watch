@@ -83,7 +83,9 @@ impl IfWatcher {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
-        self.hash.iter()
+        self.hash.iter().filter(move |inet| {
+            self.queue.iter().find(|ev| **ev == IfEvent::Up(**inet)).is_none()
+        })
     }
 
     /// Returns a future for the next event.

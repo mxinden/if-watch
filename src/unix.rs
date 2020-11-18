@@ -10,6 +10,17 @@ macro_rules! align_of {
     };
 }
 
+macro_rules! errno {
+    ($t:expr) => {{
+        let res = $t;
+        if res < 0 {
+            Err(Error::last_os_error())
+        } else {
+            Ok(res)
+        }
+    }};
+}
+
 use crate::IfEvent;
 use async_io::Async;
 use ipnet::IpNet;
@@ -49,73 +60,51 @@ impl Drop for Fd {
     }
 }
 
-#[derive(Debug)]
-#[must_use]
-enum Status<T> {
-    IO(std::io::Error),
-    Desync,
-    Data(T),
-}
-
 /// An address set/watcher
 #[derive(Debug)]
 pub struct IfWatcher {
-    hash: HashSet<IpNet>,
+    addrs: HashSet<IpNet>,
     watcher: Watcher,
-    buf: Vec<u64>,
     queue: VecDeque<IfEvent>,
 }
 
 impl IfWatcher {
     /// Create a watcher
     pub async fn new() -> Result<Self> {
-        let mut hash = HashSet::new();
+        let addrs = HashSet::new();
+        let queue = VecDeque::new();
         let mut watcher = Watcher::new()?;
-        let mut buf = Vec::with_capacity(1 << 16);
-        let mut queue = VecDeque::new();
-        watcher.resync(&mut buf, &mut queue, &mut hash).await?;
+        watcher.send_getaddr().await?;
         Ok(Self {
-            hash,
+            addrs,
             watcher,
-            buf,
             queue,
         })
     }
 
+    /// Returns an iterator of ip's.
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
-        self.hash.iter().filter(move |inet| {
-            self.queue.iter().find(|ev| **ev == IfEvent::Up(**inet)).is_none()
-        })
+        self.addrs.iter()
     }
 
     /// Returns a future for the next event.
     pub async fn next(&mut self) -> Result<IfEvent> {
-        let Self {
-            watcher,
-            buf,
-            hash,
-            queue,
-        } = self;
-        if let Some(event) = queue.pop_front() {
-            return Ok(event);
-        }
         loop {
-            match watcher.next(buf, queue, hash).await {
-                Status::IO(e) => return Err(e),
-                Status::Desync => {
-                    if buf.capacity() < 1 << 19 {
-                        buf.reserve(buf.capacity() * 2);
+            while let Some(event) = self.queue.pop_front() {
+                match event {
+                    IfEvent::Up(inet) => {
+                        if self.addrs.insert(inet) {
+                            return Ok(event);
+                        }
                     }
-                    if watcher.resync(buf, queue, hash).await.is_err() {
-                        continue;
-                    }
-                }
-                Status::Data(()) => {
-                    if let Some(event) = queue.pop_front() {
-                        return Ok(event);
+                    IfEvent::Down(inet) => {
+                        if self.addrs.remove(&inet) {
+                            return Ok(event);
+                        }
                     }
                 }
             }
+            self.watcher.recv_event(&mut self.queue).await?;
         }
     }
 }

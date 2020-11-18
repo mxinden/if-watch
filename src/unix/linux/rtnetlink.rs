@@ -4,6 +4,24 @@ use super::super::aligned_buffer::{FromBuffer, U32AlignedBuffer};
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[allow(non_camel_case_types)]
+pub(crate) struct ifaddrmsg {
+    pub(crate) ifa_family: u8,
+    pub(crate) ifa_prefixlen: u8,
+    pub(crate) ifa_flags: u8,
+    pub(crate) ifa_scope: u8,
+    pub(crate) ifa_index: u32,
+}
+
+// SAFETY: rtmsg can have any bit pattern
+unsafe impl FromBuffer for ifaddrmsg {
+    fn len(&self, size: usize) -> u32 {
+        size as _
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[allow(non_camel_case_types)]
 pub(crate) struct rtmsg {
     pub(crate) rtm_family: u8,
     pub(crate) rtm_dst_len: u8,
@@ -40,12 +58,12 @@ unsafe impl FromBuffer for rtattr {
 
 pub(crate) struct RtaIterator<'a>(U32AlignedBuffer<'a>);
 
-pub(crate) fn read_rtmsg<'a>(
+pub(crate) fn read_msg<'a, M: FromBuffer>(
     buffer: &mut U32AlignedBuffer<'a>,
-) -> Option<(rtmsg, RtaIterator<'a>)> {
-    let (rtmsg, new_buffer) = buffer.read()?;
+) -> Option<(M, RtaIterator<'a>)> {
+    let (msg, new_buffer) = buffer.read()?;
     let iterator = RtaIterator(new_buffer);
-    Some((rtmsg, iterator))
+    Some((msg, iterator))
 }
 
 pub(crate) enum RtaMessage {
@@ -64,7 +82,10 @@ impl Iterator for RtaIterator<'_> {
                 Some(e) => RtaMessage::IPAddr(e),
                 None => RtaMessage::Other,
             },
-            _ => RtaMessage::Other,
+            other => {
+                println!("other {}", other);
+                RtaMessage::Other
+            }
         })
     }
 }

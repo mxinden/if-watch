@@ -1,6 +1,6 @@
 //! IP address watching.
 #![deny(missing_docs)]
-#![deny(warnings)]
+//#![deny(warnings)]
 
 pub use ipnet::IpNet;
 use std::io::Result;

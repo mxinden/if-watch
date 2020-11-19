@@ -69,8 +69,7 @@ impl NetlinkSocket {
         #[repr(C)]
         struct Nlmsg {
             hdr: libc::nlmsghdr,
-            msg: rtnetlink::rtmsg,
-            //family: u8,
+            msg: rtnetlink::ifaddrmsg,
         };
         if self.seqnum == u32::max_value() {
             self.seqnum = 1;
@@ -85,17 +84,13 @@ impl NetlinkSocket {
                 nlmsg_seq: self.seqnum,
                 nlmsg_pid: self.address.nl_pid,
             },
-            msg: rtnetlink::rtmsg {
-                rtm_family: libc::AF_UNSPEC as _,
-                rtm_dst_len: 0,
-                rtm_src_len: 0,
-                rtm_tos: 0,
-                rtm_protocol: libc::RTPROT_UNSPEC,
-                rtm_table: libc::RT_TABLE_LOCAL,
-                rtm_scope: libc::RT_SCOPE_HOST,
-                rtm_type: libc::RTN_LOCAL,
-                rtm_flags: libc::RTM_F_NOTIFY,
-            }, //family: libc::AF_UNSPEC as _,
+            msg: rtnetlink::ifaddrmsg {
+                ifa_family: libc::AF_UNSPEC as _,
+                ifa_prefixlen: 0,
+                ifa_flags: 0,
+                ifa_scope: 0,
+                ifa_index: 0,
+            },
         };
         self.fd
             .write_with(|fd| unsafe {

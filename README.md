@@ -10,7 +10,7 @@ Got event Ok(Up(fe80::cef9:e4ff:fe9e:b23b/64))
 ```
 
 Supported platforms at the moment are:
-Linux, Windows and Android
+Linux, Windows and Android with a fallback for Macos and ios that polls for changes every 10s.
 
 ## License
 MIT OR Apache-2.0

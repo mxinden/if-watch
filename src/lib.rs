@@ -8,19 +8,19 @@ use std::io::Result;
 #[cfg(not(any(unix, windows)))]
 compile_error!("Only Unix and Windows are supported");
 
+#[cfg(not(any(target_os = "linux", windows)))]
+mod fallback;
 #[cfg(target_os = "linux")]
 mod unix;
 #[cfg(windows)]
 mod windows;
-#[cfg(not(any(target_os = "linux", windows)))]
-mod fallback;
 
+#[cfg(not(any(target_os = "linux", windows)))]
+use fallback as platform_impl;
 #[cfg(target_os = "linux")]
 use unix as platform_impl;
 #[cfg(windows)]
 use windows as platform_impl;
-#[cfg(not(any(target_os = "linux", windows)))]
-use fallback as platform_impl;
 
 /// An address change event.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

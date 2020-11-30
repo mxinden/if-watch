@@ -34,9 +34,6 @@ mod aligned_buffer;
 mod linux;
 type Watcher = linux::NetlinkSocket;
 
-#[cfg(not(target_os = "linux"))]
-mod bsd;
-
 #[derive(Debug)]
 struct Fd(RawFd);
 

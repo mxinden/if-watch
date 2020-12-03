@@ -121,15 +121,14 @@ impl NetlinkSocket {
                         iov_base: buf.as_mut_ptr() as *mut _,
                         iov_len: buf.len() * size_of!(u64),
                     };
-                    let mut msghdr = libc::msghdr {
-                        msg_name: address.as_mut_ptr() as _,
-                        msg_namelen: size_of!(libc::sockaddr_nl) as _,
-                        msg_iov: &mut iovec,
-                        msg_iovlen: 1,
-                        msg_control: std::ptr::null_mut(),
-                        msg_controllen: 0,
-                        msg_flags: 0,
-                    };
+                    let mut msghdr: libc::msghdr = std::mem::zeroed();
+                    msghdr.msg_name = address.as_mut_ptr() as _;
+                    msghdr.msg_namelen = size_of!(libc::sockaddr_nl) as _;
+                    msghdr.msg_iov = &mut iovec;
+                    msghdr.msg_iovlen = 1;
+                    msghdr.msg_control = std::ptr::null_mut();
+                    msghdr.msg_controllen = 0;
+                    msghdr.msg_flags = 0;
 
                     let flags = libc::MSG_TRUNC | libc::MSG_CMSG_CLOEXEC;
                     let status = errno!(libc::recvmsg(fd.as_raw_fd(), &mut msghdr, flags))?;

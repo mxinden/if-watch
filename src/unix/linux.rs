@@ -51,8 +51,8 @@ impl NetlinkSocket {
             address.nl_groups = RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR;
             let ptr = &mut address as *mut _;
             let mut size = size_of!(sockaddr_nl) as u32;
-            errno!(libc::bind(fd.as_raw_fd(), ptr as *mut _, size)).unwrap();
-            errno!(libc::getsockname(fd.as_raw_fd(), ptr as *mut _, &mut size)).unwrap();
+            errno!(libc::bind(fd.as_raw_fd(), ptr as *mut _, size))?;
+            errno!(libc::getsockname(fd.as_raw_fd(), ptr as *mut _, &mut size))?;
             let pid = address.nl_pid;
             address.nl_pid = 0;
             address.nl_groups = 0;
@@ -103,8 +103,7 @@ impl NetlinkSocket {
                     libc::MSG_NOSIGNAL,
                     address as _,
                     std::mem::size_of_val(&self.address) as _,
-                ))
-                .unwrap();
+                ))?;
                 Ok(())
             })
             .await

@@ -1,5 +1,6 @@
 use crate::IfEvent;
 use async_io::Timer;
+use futures_lite::Stream;
 use if_addrs::IfAddr;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::io::Result;

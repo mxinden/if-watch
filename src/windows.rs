@@ -5,6 +5,7 @@ use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::{
     collections::{HashSet, VecDeque},
     future::Future,
+    io::Result,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -33,7 +34,7 @@ pub struct IfWatcher {
 
 impl IfWatcher {
     /// Create a watcher
-    pub async fn new() -> std::io::Result<Self> {
+    pub async fn new() -> Result<Self> {
         let resync = Arc::new(AtomicBool::new(true));
         let waker = Arc::new(AtomicWaker::new());
         Ok(Self {
@@ -48,7 +49,7 @@ impl IfWatcher {
         })
     }
 
-    fn resync(&mut self) -> std::io::Result<()> {
+    fn resync(&mut self) -> Result<()> {
         let addrs = if_addrs::get_if_addrs()?;
         for old_addr in self.addrs.clone() {
             if addrs
@@ -121,7 +122,7 @@ struct RouteChangeNotification {
 type RouteChangeCallback = Box<dyn Fn(&MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) + Send>;
 impl RouteChangeNotification {
     /// Register for route change notifications
-    fn new(cb: RouteChangeCallback) -> std::io::Result<Self> {
+    fn new(cb: RouteChangeCallback) -> Result<Self> {
         #[allow(non_snake_case)]
         unsafe extern "system" fn global_callback(
             CallerContext: PVOID,

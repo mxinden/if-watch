@@ -78,7 +78,7 @@ impl IfWatcher {
 impl Future for IfWatcher {
     type Output = Result<IfEvent>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         self.waker.register(cx.waker());
         if self.resync.swap(false, Ordering::Relaxed) {
             if let Err(error) = self.resync() {

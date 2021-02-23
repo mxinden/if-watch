@@ -1,15 +1,16 @@
 use crate::IfEvent;
 use futures::task::AtomicWaker;
-use futures_lite::future::poll_fn;
 use if_addrs::IfAddr;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::{
     collections::{HashSet, VecDeque},
+    future::Future,
+    pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    task::Poll,
+    task::{Context, Poll},
 };
 use winapi::shared::{
     netioapi::{
@@ -71,23 +72,23 @@ impl IfWatcher {
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
+}
 
-    /// Returns a future for the next event.
-    pub async fn next(&mut self) -> std::io::Result<IfEvent> {
-        poll_fn(|cx| {
-            self.waker.register(cx.waker());
-            if self.resync.swap(false, Ordering::Relaxed) {
-                if let Err(error) = self.resync() {
-                    return Poll::Ready(Err(error));
-                }
+impl Future for IfWatcher {
+    type Output = Result<IfEvent>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        self.waker.register(cx.waker());
+        if self.resync.swap(false, Ordering::Relaxed) {
+            if let Err(error) = self.resync() {
+                return Poll::Ready(Err(error));
             }
-            if let Some(event) = self.queue.pop_front() {
-                Poll::Ready(Ok(event))
-            } else {
-                Poll::Pending
-            }
-        })
-        .await
+        }
+        if let Some(event) = self.queue.pop_front() {
+            Poll::Ready(Ok(event))
+        } else {
+            Poll::Pending
+        }
     }
 }
 

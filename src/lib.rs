@@ -3,7 +3,10 @@
 #![deny(warnings)]
 
 pub use ipnet::IpNet;
+use std::future::Future;
 use std::io::Result;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 #[cfg(not(any(unix, windows)))]
 compile_error!("Only Unix and Windows are supported");
@@ -45,33 +48,26 @@ impl IfWatcher {
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.0.iter()
     }
+}
 
-    /// Returns a future for the next event.
-    pub async fn next(&mut self) -> Result<IfEvent> {
-        self.0.next().await
+impl Future for IfWatcher {
+    type Output = Result<IfEvent>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        Pin::new(&mut self.0).poll(cx)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_lite::future::poll_fn;
-    use std::{future::Future, pin::Pin, task::Poll};
 
     #[test]
     fn test_ip_watch() {
         futures_lite::future::block_on(async {
             let mut set = IfWatcher::new().await.unwrap();
-            poll_fn(|cx| loop {
-                let next = set.next();
-                futures_lite::pin!(next);
-                if let Poll::Ready(Ok(ev)) = Pin::new(&mut next).poll(cx) {
-                    println!("Got event {:?}", ev);
-                    continue;
-                }
-                return Poll::Ready(());
-            })
-            .await;
+            let event = Pin::new(&mut set).await.unwrap();
+            println!("Got event {:?}", event);
         });
     }
 
@@ -81,7 +77,7 @@ mod tests {
             fn is_send<T: Send>(_: T) {}
             is_send(IfWatcher::new());
             is_send(IfWatcher::new().await.unwrap());
-            is_send(IfWatcher::new().await.unwrap().next());
+            is_send(Pin::new(&mut IfWatcher::new().await.unwrap()));
         });
     }
 }

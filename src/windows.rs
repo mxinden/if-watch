@@ -1,15 +1,17 @@
 use crate::IfEvent;
 use futures::task::AtomicWaker;
-use futures_lite::future::poll_fn;
 use if_addrs::IfAddr;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::{
     collections::{HashSet, VecDeque},
+    future::Future,
+    io::Result,
+    pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    task::Poll,
+    task::{Context, Poll},
 };
 use winapi::shared::{
     netioapi::{
@@ -32,7 +34,7 @@ pub struct IfWatcher {
 
 impl IfWatcher {
     /// Create a watcher
-    pub async fn new() -> std::io::Result<Self> {
+    pub async fn new() -> Result<Self> {
         let resync = Arc::new(AtomicBool::new(true));
         let waker = Arc::new(AtomicWaker::new());
         Ok(Self {
@@ -47,7 +49,7 @@ impl IfWatcher {
         })
     }
 
-    fn resync(&mut self) -> std::io::Result<()> {
+    fn resync(&mut self) -> Result<()> {
         let addrs = if_addrs::get_if_addrs()?;
         for old_addr in self.addrs.clone() {
             if addrs
@@ -71,23 +73,23 @@ impl IfWatcher {
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
+}
 
-    /// Returns a future for the next event.
-    pub async fn next(&mut self) -> std::io::Result<IfEvent> {
-        poll_fn(|cx| {
-            self.waker.register(cx.waker());
-            if self.resync.swap(false, Ordering::Relaxed) {
-                if let Err(error) = self.resync() {
-                    return Poll::Ready(Err(error));
-                }
+impl Future for IfWatcher {
+    type Output = Result<IfEvent>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        self.waker.register(cx.waker());
+        if self.resync.swap(false, Ordering::Relaxed) {
+            if let Err(error) = self.resync() {
+                return Poll::Ready(Err(error));
             }
-            if let Some(event) = self.queue.pop_front() {
-                Poll::Ready(Ok(event))
-            } else {
-                Poll::Pending
-            }
-        })
-        .await
+        }
+        if let Some(event) = self.queue.pop_front() {
+            Poll::Ready(Ok(event))
+        } else {
+            Poll::Pending
+        }
     }
 }
 
@@ -120,7 +122,7 @@ struct RouteChangeNotification {
 type RouteChangeCallback = Box<dyn Fn(&MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) + Send>;
 impl RouteChangeNotification {
     /// Register for route change notifications
-    fn new(cb: RouteChangeCallback) -> std::io::Result<Self> {
+    fn new(cb: RouteChangeCallback) -> Result<Self> {
         #[allow(non_snake_case)]
         unsafe extern "system" fn global_callback(
             CallerContext: PVOID,

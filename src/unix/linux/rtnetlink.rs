@@ -67,7 +67,7 @@ pub(crate) fn read_msg<'a, M: FromBuffer>(
 }
 
 pub(crate) enum RtaMessage {
-    IPAddr(std::net::IpAddr),
+    IpAddr(std::net::IpAddr),
     Other,
 }
 
@@ -79,7 +79,7 @@ impl Iterator for RtaIterator<'_> {
         let (attr, buf): (rtattr, _) = self.0.read()?;
         Some(match attr.rta_type {
             libc::RTA_DST => match buf.try_into().ok() {
-                Some(e) => RtaMessage::IPAddr(e),
+                Some(e) => RtaMessage::IpAddr(e),
                 None => RtaMessage::Other,
             },
             other => {

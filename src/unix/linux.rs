@@ -65,12 +65,16 @@ impl NetlinkSocket {
         }
     }
 
+    pub fn fd(&self) -> &Async<Fd> {
+        &self.fd
+    }
+
     pub async fn send_getaddr(&mut self) -> Result<()> {
         #[repr(C)]
         struct Nlmsg {
             hdr: libc::nlmsghdr,
             msg: rtnetlink::ifaddrmsg,
-        };
+        }
         if self.seqnum == u32::max_value() {
             self.seqnum = 1;
         } else {
@@ -184,7 +188,7 @@ fn read_ifaddrmsg<'a>(queue: &mut VecDeque<IfEvent>, ty: i32, msg: &mut U32Align
     }
     let ip = iter
         .filter_map(|e| match e {
-            rtnetlink::RtaMessage::IPAddr(e) => Some(e),
+            rtnetlink::RtaMessage::IpAddr(e) => Some(e),
             rtnetlink::RtaMessage::Other => None,
         })
         .next()

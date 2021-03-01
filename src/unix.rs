@@ -23,10 +23,13 @@ macro_rules! errno {
 
 use crate::IfEvent;
 use async_io::Async;
+use futures_lite::Future;
 use ipnet::IpNet;
 use std::collections::{HashSet, VecDeque};
 use std::io::Result;
 use std::os::unix::prelude::*;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 mod aligned_buffer;
 
@@ -35,7 +38,7 @@ mod linux;
 type Watcher = linux::NetlinkSocket;
 
 #[derive(Debug)]
-struct Fd(RawFd);
+pub struct Fd(RawFd);
 
 impl Fd {
     pub fn new(fd: RawFd) -> Result<Async<Self>> {
@@ -83,25 +86,36 @@ impl IfWatcher {
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
+}
 
-    /// Returns a future for the next event.
-    pub async fn next(&mut self) -> Result<IfEvent> {
+impl Future for IfWatcher {
+    type Output = Result<IfEvent>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        let me = Pin::into_inner(self);
         loop {
-            while let Some(event) = self.queue.pop_front() {
+            while let Some(event) = me.queue.pop_front() {
                 match event {
                     IfEvent::Up(inet) => {
-                        if self.addrs.insert(inet) {
-                            return Ok(event);
+                        if me.addrs.insert(inet) {
+                            return Poll::Ready(Ok(event));
                         }
                     }
                     IfEvent::Down(inet) => {
-                        if self.addrs.remove(&inet) {
-                            return Ok(event);
+                        if me.addrs.remove(&inet) {
+                            return Poll::Ready(Ok(event));
                         }
                     }
                 }
             }
-            self.watcher.recv_event(&mut self.queue).await?;
+            if me.watcher.fd().poll_readable(cx).is_pending() {
+                return Poll::Pending;
+            }
+            let fut = me.watcher.recv_event(&mut me.queue);
+            futures_lite::pin!(fut);
+            if let Poll::Ready(Err(err)) = fut.poll(cx) {
+                return Poll::Ready(Err(err));
+            }
         }
     }
 }

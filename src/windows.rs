@@ -3,7 +3,7 @@ use futures::task::AtomicWaker;
 use if_addrs::IfAddr;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{hash_set::Iter, HashSet, VecDeque},
     future::Future,
     io::Result,
     pin::Pin,
@@ -70,7 +70,7 @@ impl IfWatcher {
         Ok(())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
+    pub fn iter(&self) -> Iter<'_, IpNet> {
         self.addrs.iter()
     }
 }

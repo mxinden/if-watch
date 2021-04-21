@@ -25,13 +25,11 @@ use crate::IfEvent;
 use async_io::Async;
 use futures_lite::Future;
 use ipnet::IpNet;
-use std::{
-    collections::{hash_set::Iter, HashSet, VecDeque},
-    io::Result,
-    os::unix::prelude::*,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::collections::{HashSet, VecDeque};
+use std::io::Result;
+use std::os::unix::prelude::*;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 mod aligned_buffer;
 
@@ -85,7 +83,7 @@ impl IfWatcher {
     }
 
     /// Returns an iterator of ip's.
-    pub fn iter(&self) -> Iter<'_, IpNet> {
+    pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
 }

@@ -8,6 +8,10 @@ use std::io::Result;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+#[cfg(not(any(unix, windows)))]
+compile_error!("Only Unix and Windows are supported");
+
+#[cfg(not(any(target_os = "linux", windows)))]
 mod fallback;
 #[cfg(target_os = "linux")]
 mod unix;
@@ -32,29 +36,17 @@ pub enum IfEvent {
 
 /// Watches for interface changes.
 #[derive(Debug)]
-pub enum IfWatcher {
-    /// Uses platform api.
-    Platform(platform_impl::IfWatcher),
-    /// Polling fallback.
-    Fallback(fallback::IfWatcher),
-}
+pub struct IfWatcher(platform_impl::IfWatcher);
 
 impl IfWatcher {
     /// Create a watcher
     pub async fn new() -> Result<Self> {
-        if std::env::var_os("WSL_DISTRO_NAME").is_none() {
-            Ok(Self::Platform(platform_impl::IfWatcher::new().await?))
-        } else {
-            Ok(Self::Fallback(fallback::IfWatcher::new().await?))
-        }
+        Ok(Self(platform_impl::IfWatcher::new().await?))
     }
 
     /// Iterate over current networks.
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
-        match self {
-            Self::Platform(watcher) => watcher.iter(),
-            Self::Fallback(watcher) => watcher.iter(),
-        }
+        self.0.iter()
     }
 }
 
@@ -62,10 +54,7 @@ impl Future for IfWatcher {
     type Output = Result<IfEvent>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        match &mut *self {
-            Self::Platform(watcher) => Pin::new(watcher).poll(cx),
-            Self::Fallback(watcher) => Pin::new(watcher).poll(cx),
-        }
+        Pin::new(&mut self.0).poll(cx)
     }
 }
 

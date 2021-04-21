@@ -3,10 +3,10 @@ use async_io::Timer;
 use futures_lite::Stream;
 use if_addrs::IfAddr;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use std::io::Result;
 use std::{
-    collections::{hash_set::Iter, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     future::Future,
-    io::Result,
     pin::Pin,
     task::{Context, Poll},
     time::{Duration, Instant},
@@ -51,7 +51,7 @@ impl IfWatcher {
         Ok(())
     }
 
-    pub fn iter(&self) -> Iter<'_, IpNet> {
+    pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
 }

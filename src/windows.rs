@@ -27,6 +27,7 @@ use winapi::shared::{
 pub struct IfWatcher {
     addrs: HashSet<IpNet>,
     queue: VecDeque<IfEvent>,
+    #[allow(unused)]
     notif: RouteChangeNotification,
     waker: Arc<AtomicWaker>,
     resync: Arc<AtomicBool>,

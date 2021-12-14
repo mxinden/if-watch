@@ -75,7 +75,6 @@ impl Iterator for RtaIterator<'_> {
     type Item = RtaMessage;
 
     fn next(&mut self) -> Option<RtaMessage> {
-        use core::convert::TryInto;
         let (attr, buf): (rtattr, _) = self.0.read()?;
         Some(match attr.rta_type {
             libc::RTA_DST => match buf.try_into().ok() {

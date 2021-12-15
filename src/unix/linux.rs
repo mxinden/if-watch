@@ -29,7 +29,6 @@ pub struct NetlinkSocket {
     fd: Async<Fd>,
     address: sockaddr_nl,
     seqnum: u32,
-    pid: u32,
 }
 
 const RTMGRP_IPV4_IFADDR: u32 = 0x10;
@@ -53,14 +52,12 @@ impl NetlinkSocket {
             let mut size = size_of!(sockaddr_nl) as u32;
             errno!(libc::bind(fd.as_raw_fd(), ptr as *mut _, size))?;
             errno!(libc::getsockname(fd.as_raw_fd(), ptr as *mut _, &mut size))?;
-            let pid = address.nl_pid;
             address.nl_pid = 0;
             address.nl_groups = 0;
             Ok(Self {
                 fd,
                 address,
                 seqnum: 0,
-                pid,
             })
         }
     }

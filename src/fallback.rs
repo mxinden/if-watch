@@ -1,16 +1,14 @@
 use crate::IfEvent;
 use async_io::Timer;
-use futures_lite::Stream;
+use futures::stream::Stream;
 use if_addrs::IfAddr;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use std::collections::{HashSet, VecDeque};
+use std::future::Future;
 use std::io::Result;
-use std::{
-    collections::{HashSet, VecDeque},
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-    time::{Duration, Instant},
-};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
 /// An address set/watcher
 #[derive(Debug)]
@@ -33,11 +31,7 @@ impl IfWatcher {
     fn resync(&mut self) -> Result<()> {
         let addrs = if_addrs::get_if_addrs()?;
         for old_addr in self.addrs.clone() {
-            if addrs
-                .iter()
-                .find(|addr| addr.ip() == old_addr.addr())
-                .is_none()
-            {
+            if addrs.iter().any(|addr| addr.ip() == old_addr.addr()) {
                 self.addrs.remove(&old_addr);
                 self.queue.push_back(IfEvent::Down(old_addr));
             }

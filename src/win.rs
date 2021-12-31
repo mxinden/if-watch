@@ -1,34 +1,28 @@
-use crate::IfEvent;
+use crate::{IfEvent, IpNet, Ipv4Net, Ipv6Net};
+use fnv::FnvHashSet;
 use futures::task::AtomicWaker;
 use if_addrs::IfAddr;
-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use std::{
-    collections::{HashSet, VecDeque},
-    future::Future,
-    io::Result,
-    pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    task::{Context, Poll},
-};
-use winapi::shared::{
-    netioapi::{
-        CancelMibChangeNotify2, NotifyIpInterfaceChange, MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE,
-    },
-    ntdef::{HANDLE, PVOID},
-    winerror::NO_ERROR,
-    ws2def::AF_UNSPEC,
+use std::collections::VecDeque;
+use std::ffi::c_void;
+use std::future::Future;
+use std::io::{Error, ErrorKind, Result};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use windows::Win32::Foundation::HANDLE;
+use windows::Win32::NetworkManagement::IpHelper::{
+    CancelMibChangeNotify2, NotifyIpInterfaceChange, AF_UNSPEC, MIB_IPINTERFACE_ROW,
+    MIB_NOTIFICATION_TYPE,
 };
 
 /// An address set/watcher
 #[derive(Debug)]
 pub struct IfWatcher {
-    addrs: HashSet<IpNet>,
+    addrs: FnvHashSet<IpNet>,
     queue: VecDeque<IfEvent>,
     #[allow(unused)]
-    notif: RouteChangeNotification,
+    notif: IpChangeNotification,
     waker: Arc<AtomicWaker>,
     resync: Arc<AtomicBool>,
 }
@@ -43,7 +37,7 @@ impl IfWatcher {
             queue: Default::default(),
             waker: waker.clone(),
             resync: resync.clone(),
-            notif: RouteChangeNotification::new(Box::new(move |_, _| {
+            notif: IpChangeNotification::new(Box::new(move |_, _| {
                 resync.store(true, Ordering::Relaxed);
                 waker.wake();
             }))?,
@@ -111,53 +105,55 @@ fn ifaddr_to_ipnet(addr: IfAddr) -> IpNet {
     }
 }
 
-/// Route change notifications
-#[derive(Debug)]
-struct RouteChangeNotification {
+/// IP change notifications
+struct IpChangeNotification {
     handle: HANDLE,
-    callback: *mut RouteChangeCallback,
-    // actual callback follows
+    callback: *mut IpChangeCallback,
 }
 
-/// The type of route change callbacks
-type RouteChangeCallback = Box<dyn Fn(&MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) + Send>;
-impl RouteChangeNotification {
+impl std::fmt::Debug for IpChangeNotification {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "IpChangeNotification")
+    }
+}
+
+type IpChangeCallback = Box<dyn Fn(&MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) + Send>;
+
+impl IpChangeNotification {
     /// Register for route change notifications
-    fn new(cb: RouteChangeCallback) -> Result<Self> {
-        #[allow(non_snake_case)]
+    fn new(cb: IpChangeCallback) -> Result<Self> {
         unsafe extern "system" fn global_callback(
-            CallerContext: PVOID,
-            Row: *mut MIB_IPINTERFACE_ROW,
-            NotificationType: MIB_NOTIFICATION_TYPE,
+            caller_context: *const c_void,
+            row: *const MIB_IPINTERFACE_ROW,
+            notification_type: MIB_NOTIFICATION_TYPE,
         ) {
-            (**(CallerContext as *const RouteChangeCallback))(&*Row, NotificationType)
+            (**(caller_context as *const IpChangeCallback))(&*row, notification_type)
         }
-        let mut handle = core::ptr::null_mut();
+        let mut handle = HANDLE::default();
         let callback = Box::into_raw(Box::new(cb));
-        if unsafe {
+        unsafe {
             NotifyIpInterfaceChange(
                 AF_UNSPEC as _,
                 Some(global_callback),
                 callback as _,
                 0,
-                &mut handle,
+                &mut handle as _,
             )
-        } != NO_ERROR
-        {
-            Err(std::io::Error::last_os_error())
-        } else {
-            Ok(Self { callback, handle })
+            .map_err(|err| Error::new(ErrorKind::Other, err.to_string()))?;
         }
+        Ok(Self { callback, handle })
     }
 }
 
-impl Drop for RouteChangeNotification {
+impl Drop for IpChangeNotification {
     fn drop(&mut self) {
         unsafe {
-            CancelMibChangeNotify2(self.handle);
+            if let Err(err) = CancelMibChangeNotify2(self.handle) {
+                log::error!("error deregistering notification: {}", err);
+            }
             drop(Box::from_raw(self.callback));
         }
     }
 }
 
-unsafe impl Send for RouteChangeNotification {}
+unsafe impl Send for IpChangeNotification {}

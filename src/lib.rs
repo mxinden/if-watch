@@ -2,28 +2,49 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
-pub use ipnet::IpNet;
+pub use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::future::Future;
 use std::io::Result;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-#[cfg(not(any(unix, windows)))]
-compile_error!("Only Unix and Windows are supported");
-
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(all(not(feature = "force-fallback"), target_os = "macos"))]
+mod apple;
+#[cfg(all(not(feature = "force-fallback"), target_os = "ios"))]
+mod apple;
+#[cfg(any(
+    feature = "force-fallback",
+    not(any(
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+    ))
+))]
 mod fallback;
-#[cfg(target_os = "linux")]
-mod unix;
-#[cfg(windows)]
-mod windows;
+#[cfg(all(not(feature = "force-fallback"), target_os = "linux"))]
+mod linux;
+#[cfg(all(not(feature = "force-fallback"), target_os = "windows"))]
+mod win;
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(all(not(feature = "force-fallback"), target_os = "macos"))]
+use apple as platform_impl;
+#[cfg(all(not(feature = "force-fallback"), target_os = "ios"))]
+use apple as platform_impl;
+#[cfg(any(
+    feature = "force-fallback",
+    not(any(
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+    ))
+))]
 use fallback as platform_impl;
-#[cfg(target_os = "linux")]
-use unix as platform_impl;
-#[cfg(windows)]
-use windows as platform_impl;
+#[cfg(all(not(feature = "force-fallback"), target_os = "linux"))]
+use linux as platform_impl;
+#[cfg(all(not(feature = "force-fallback"), target_os = "windows"))]
+use win as platform_impl;
 
 /// An address change event.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -64,7 +85,7 @@ mod tests {
 
     #[test]
     fn test_ip_watch() {
-        futures_lite::future::block_on(async {
+        futures::executor::block_on(async {
             let mut set = IfWatcher::new().await.unwrap();
             let event = Pin::new(&mut set).await.unwrap();
             println!("Got event {:?}", event);
@@ -73,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_is_send() {
-        futures_lite::future::block_on(async {
+        futures::executor::block_on(async {
             fn is_send<T: Send>(_: T) {}
             is_send(IfWatcher::new());
             is_send(IfWatcher::new().await.unwrap());

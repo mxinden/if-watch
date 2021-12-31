@@ -8,21 +8,36 @@ license = "MIT OR Apache-2.0"
 description = "crossplatform asynchronous network watcher"
 repository = "https://github.com/dvc94ch/if-watch"
 
+[features]
+force-fallback = ["async-io", "if-addrs"]
+
 [dependencies]
-futures-lite = "1.11.3"
-ipnet = "2.3.0"
-libc = "0.2.86"
+fnv = "1.0.7"
+futures = "0.3.19"
+ipnet = "2.3.1"
 log = "0.4.14"
+async-io = { version = "1.6.0", optional = true }
+if-addrs = { version = "0.7.0", optional = true }
 
-[target.'cfg(not(windows))'.dependencies]
-async-io = "1.3.1"
+[target.'cfg(target_os = "linux")'.dependencies]
+async-global-executor = "2.0.2"
+rtnetlink = { version = "0.9.0", default-features = false, features = ["smol_socket"] }
 
-[target.'cfg(not(target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+core-foundation = "0.9.2"
 if-addrs = "0.7.0"
+system-configuration = "0.4.0"
 
-[target.'cfg(windows)'.dependencies]
-futures = { version = "0.3.13", default-features = false }
-winapi = { version = "0.3.9", features = ["netioapi", "ntdef", "winerror", "ws2def"] }
+[target.'cfg(target_os = "windows")'.dependencies]
+if-addrs = "0.7.0"
+windows = { version = "0.29.0", features = ["Win32_NetworkManagement_IpHelper", "Win32_Foundation", "Win32_Networking_WinSock"] }
+
+[target.'cfg(not(any(target_os = "ios", target_os = "linux", target_os = "macos", target_os = "windows")))'.dependencies]
+async-io = "1.6.0"
+if-addrs = "0.7.0"
 
 [dev-dependencies]
 env_logger = "0.9.0"
+
+[patch.crates-io]
+system-configuration = { git = "https://github.com/dvc94ch/system-configuration-rs", branch = "update-deps" }

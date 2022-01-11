@@ -1,11 +1,12 @@
 use crate::{IfEvent, IpNet, Ipv4Net, Ipv6Net};
 use fnv::FnvHashSet;
 use futures::channel::mpsc::UnboundedReceiver;
+use futures::future::FutureExt;
 use futures::stream::{Stream, TryStreamExt};
 use rtnetlink::constants::{RTMGRP_IPV4_IFADDR, RTMGRP_IPV6_IFADDR};
 use rtnetlink::packet::address::nlas::Nla;
 use rtnetlink::packet::{AddressMessage, RtnlMessage};
-use rtnetlink::proto::{NetlinkMessage, NetlinkPayload};
+use rtnetlink::proto::{Connection, NetlinkMessage, NetlinkPayload};
 use rtnetlink::sys::{AsyncSocket, SmolSocket, SocketAddr};
 use std::collections::VecDeque;
 use std::future::Future;
@@ -15,8 +16,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub struct IfWatcher {
-    #[allow(unused)]
-    task: async_global_executor::Task<()>,
+    conn: Connection<RtnlMessage, SmolSocket>,
     messages: UnboundedReceiver<(NetlinkMessage<RtnlMessage>, SocketAddr)>,
     addrs: FnvHashSet<IpNet>,
     queue: VecDeque<IfEvent>,
@@ -36,23 +36,28 @@ impl IfWatcher {
         let groups = RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR;
         let addr = SocketAddr::new(0, groups);
         conn.socket_mut().socket_mut().bind(&addr)?;
-        let task = async_global_executor::spawn(conn);
         let mut stream = handle.address().get().execute();
         let mut addrs = FnvHashSet::default();
         let mut queue = VecDeque::default();
-        while let Some(msg) = stream
-            .try_next()
-            .await
-            .map_err(|err| Error::new(ErrorKind::Other, err))?
-        {
-            for net in iter_nets(msg) {
-                if addrs.insert(net) {
-                    queue.push_back(IfEvent::Up(net));
-                }
+
+        loop {
+            futures::select! {
+                msg = stream.try_next().fuse() => match msg {
+                    Ok(Some(msg)) => {
+                        for net in iter_nets(msg) {
+                            if addrs.insert(net) {
+                                queue.push_back(IfEvent::Up(net));
+                            }
+                        }
+                    },
+                    Ok(None) => break,
+                    Err(err) => return Err(Error::new(ErrorKind::Other, err)),
+                },
+                _r = (&mut conn).fuse() => {}
             }
         }
         Ok(Self {
-            task,
+            conn,
             messages,
             addrs,
             queue,
@@ -84,6 +89,7 @@ impl Future for IfWatcher {
     type Output = Result<IfEvent>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        while Pin::new(&mut self.conn).poll(cx).is_ready() {}
         while let Poll::Ready(Some((message, _))) = Pin::new(&mut self.messages).poll_next(cx) {
             match message.payload {
                 NetlinkPayload::Error(err) => return Poll::Ready(Err(err.to_io())),
@@ -95,7 +101,7 @@ impl Future for IfWatcher {
                 _ => {}
             }
         }
-        while let Some(event) = self.queue.pop_front() {
+        if let Some(event) = self.queue.pop_front() {
             return Poll::Ready(Ok(event));
         }
         Poll::Pending

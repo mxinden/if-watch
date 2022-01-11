@@ -8,42 +8,36 @@ use std::io::Result;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-#[cfg(all(not(feature = "force-fallback"), target_os = "macos"))]
+#[cfg(target_os = "macos")]
 mod apple;
-#[cfg(all(not(feature = "force-fallback"), target_os = "ios"))]
+#[cfg(target_os = "ios")]
 mod apple;
-#[cfg(any(
-    feature = "force-fallback",
-    not(any(
-        target_os = "ios",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-    ))
-))]
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows",
+)))]
 mod fallback;
-#[cfg(all(not(feature = "force-fallback"), target_os = "linux"))]
+#[cfg(target_os = "linux")]
 mod linux;
-#[cfg(all(not(feature = "force-fallback"), target_os = "windows"))]
+#[cfg(target_os = "windows")]
 mod win;
 
-#[cfg(all(not(feature = "force-fallback"), target_os = "macos"))]
+#[cfg(target_os = "macos")]
 use apple as platform_impl;
-#[cfg(all(not(feature = "force-fallback"), target_os = "ios"))]
+#[cfg(target_os = "ios")]
 use apple as platform_impl;
-#[cfg(any(
-    feature = "force-fallback",
-    not(any(
-        target_os = "ios",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-    ))
-))]
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows",
+)))]
 use fallback as platform_impl;
-#[cfg(all(not(feature = "force-fallback"), target_os = "linux"))]
+#[cfg(target_os = "linux")]
 use linux as platform_impl;
-#[cfg(all(not(feature = "force-fallback"), target_os = "windows"))]
+#[cfg(target_os = "windows")]
 use win as platform_impl;
 
 /// An address change event.

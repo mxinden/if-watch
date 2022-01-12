@@ -1,6 +1,6 @@
 [package]
 name = "if-watch"
-version = "0.3.0"
+version = "1.0.0"
 authors = ["David Craven <david@craven.ch>", "Parity Technologies Limited <admin@parity.io>"]
 edition = "2021"
 keywords = ["asynchronous", "routing"]

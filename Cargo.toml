@@ -6,7 +6,7 @@ edition = "2021"
 keywords = ["asynchronous", "routing"]
 license = "MIT OR Apache-2.0"
 description = "crossplatform asynchronous network watcher"
-repository = "https://github.com/dvc94ch/if-watch"
+repository = "https://github.com/mxinden/if-watch"
 
 [dependencies]
 fnv = "1.0.7"

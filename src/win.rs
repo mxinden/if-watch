@@ -10,7 +10,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{BOOLEAN, HANDLE};
 use windows::Win32::NetworkManagement::IpHelper::{
     CancelMibChangeNotify2, NotifyIpInterfaceChange, AF_UNSPEC, MIB_IPINTERFACE_ROW,
     MIB_NOTIFICATION_TYPE,
@@ -133,10 +133,10 @@ impl IpChangeNotification {
         let callback = Box::into_raw(Box::new(cb));
         unsafe {
             NotifyIpInterfaceChange(
-                AF_UNSPEC as _,
+                AF_UNSPEC.0 as _,
                 Some(global_callback),
                 callback as _,
-                0,
+                BOOLEAN(0),
                 &mut handle as _,
             )
             .map_err(|err| Error::new(ErrorKind::Other, err.to_string()))?;

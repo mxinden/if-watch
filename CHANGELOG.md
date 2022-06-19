@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0]
+### Added
+- Return socket closure as error. See [PR 15].
+
+### Fixed
+- Update to `windows` `v0.34`. See [PR 16].
+
+[PR 15]: https://github.com/mxinden/if-watch/pull/15
+[PR 16]: https://github.com/mxinden/if-watch/pull/16
+
 ## [1.0.0] - 2022-01-12
 ### Added
 - macos/ios backend

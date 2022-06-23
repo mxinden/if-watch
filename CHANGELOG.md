@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Update to `rtnetlink` `v0.10`. See [PR 19].
+
+[PR 19]: https://github.com/mxinden/if-watch/pull/19
+
 ## [1.1.0]
 ### Added
 - Return socket closure as error. See [PR 15].

@@ -61,15 +61,16 @@ impl IfWatcher {
     }
 
     pub fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<IfEvent>> {
-        while let Poll::Ready(_) = Pin::new(&mut self.rx).poll_next(cx) {
+        loop {
+            if let Some(event) = self.queue.pop_front() {
+                return Poll::Ready(Ok(event));
+            }
+            if Pin::new(&mut self.rx).poll_next(cx).is_pending() {
+                return Poll::Pending;
+            }
             if let Err(error) = self.resync() {
                 return Poll::Ready(Err(error));
             }
-        }
-        if let Some(event) = self.queue.pop_front() {
-            Poll::Ready(Ok(event))
-        } else {
-            Poll::Pending
         }
     }
 }

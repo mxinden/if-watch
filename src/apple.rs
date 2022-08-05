@@ -59,12 +59,8 @@ impl IfWatcher {
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
-}
 
-impl Future for IfWatcher {
-    type Output = Result<IfEvent>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    pub fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<IfEvent>> {
         while let Poll::Ready(_) = Pin::new(&mut self.rx).poll_next(cx) {
             if let Err(error) = self.resync() {
                 return Poll::Ready(Err(error));

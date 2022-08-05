@@ -93,12 +93,8 @@ impl IfWatcher {
             }
         }
     }
-}
 
-impl Future for IfWatcher {
-    type Output = Result<IfEvent>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    pub fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<IfEvent>> {
         log::trace!("polling IfWatcher {:p}", self.deref_mut());
         if Pin::new(&mut self.conn).poll(cx).is_ready() {
             return Poll::Ready(Err(std::io::Error::new(

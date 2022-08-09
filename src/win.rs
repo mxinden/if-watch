@@ -29,7 +29,7 @@ pub struct IfWatcher {
 
 impl IfWatcher {
     /// Create a watcher
-    pub async fn new() -> Result<Self> {
+    pub fn new() -> Result<Self> {
         let resync = Arc::new(AtomicBool::new(true));
         let waker = Arc::new(AtomicWaker::new());
         Ok(Self {

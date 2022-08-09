@@ -55,8 +55,8 @@ pub struct IfWatcher(platform_impl::IfWatcher);
 
 impl IfWatcher {
     /// Create a watcher
-    pub async fn new() -> Result<Self> {
-        Ok(Self(platform_impl::IfWatcher::new().await?))
+    pub fn new() -> Result<Self> {
+        platform_impl::IfWatcher::new().map(Self)
     }
 
     /// Iterate over current networks.
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn test_ip_watch() {
         futures::executor::block_on(async {
-            let mut set = IfWatcher::new().await.unwrap();
+            let mut set = IfWatcher::new().unwrap();
             let event = Pin::new(&mut set).await.unwrap();
             println!("Got event {:?}", event);
         });
@@ -91,8 +91,8 @@ mod tests {
         futures::executor::block_on(async {
             fn is_send<T: Send>(_: T) {}
             is_send(IfWatcher::new());
-            is_send(IfWatcher::new().await.unwrap());
-            is_send(Pin::new(&mut IfWatcher::new().await.unwrap()));
+            is_send(IfWatcher::new().unwrap());
+            is_send(Pin::new(&mut IfWatcher::new().unwrap()));
         });
     }
 }

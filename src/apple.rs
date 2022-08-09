@@ -23,7 +23,7 @@ pub struct IfWatcher {
 }
 
 impl IfWatcher {
-    pub async fn new() -> Result<Self> {
+    pub fn new() -> Result<Self> {
         let (tx, rx) = mpsc::channel(1);
         std::thread::spawn(|| background_task(tx));
         let mut watcher = Self {

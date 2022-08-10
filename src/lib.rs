@@ -2,8 +2,9 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
+use futures::stream::FusedStream;
+use futures::Stream;
 pub use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use std::future::Future;
 use std::io::Result;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -63,25 +64,36 @@ impl IfWatcher {
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.0.iter()
     }
+
+    /// Poll for an address change event.
+    pub fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<IfEvent>> {
+        Pin::new(&mut self.0).poll_next(cx)
+    }
 }
 
-impl Future for IfWatcher {
-    type Output = Result<IfEvent>;
+impl Stream for IfWatcher {
+    type Item = Result<IfEvent>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.poll_next(cx).map(Some)
+    }
+}
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        Pin::new(&mut self.0).poll(cx)
+impl FusedStream for IfWatcher {
+    fn is_terminated(&self) -> bool {
+        false
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
 
     #[test]
     fn test_ip_watch() {
         futures::executor::block_on(async {
             let mut set = IfWatcher::new().unwrap();
-            let event = Pin::new(&mut set).await.unwrap();
+            let event = set.select_next_some().await.unwrap();
             println!("Got event {:?}", event);
         });
     }

@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Add `IfWatcher::poll_next`. Implement `Stream` instead of `Future` for `IfWatcher`. See [PR 23].
+- Make `IfWatcher::new` synchronous. See [PR 24].
 
 [PR 23]: https://github.com/mxinden/if-watch/pull/23
+[PR 24]: https://github.com/mxinden/if-watch/pull/24
 
 ## [1.1.1]
 

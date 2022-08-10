@@ -20,7 +20,7 @@ pub struct IfWatcher {
 
 impl IfWatcher {
     /// Create a watcher
-    pub async fn new() -> Result<Self> {
+    pub fn new() -> Result<Self> {
         Ok(Self {
             addrs: Default::default(),
             queue: Default::default(),

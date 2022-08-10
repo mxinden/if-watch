@@ -7,7 +7,6 @@ use futures::channel::mpsc;
 use futures::stream::Stream;
 use if_addrs::IfAddr;
 use std::collections::VecDeque;
-use std::future::Future;
 use std::io::Result;
 use std::pin::Pin;
 use std::task::{Context, Poll};

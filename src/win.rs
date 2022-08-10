@@ -4,7 +4,6 @@ use futures::task::AtomicWaker;
 use if_addrs::IfAddr;
 use std::collections::VecDeque;
 use std::ffi::c_void;
-use std::future::Future;
 use std::io::{Error, ErrorKind, Result};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -72,7 +71,7 @@ impl IfWatcher {
     pub fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<IfEvent>> {
         loop {
             if let Some(event) = self.queue.pop_front() {
-                Poll::Ready(Ok(event))
+                return Poll::Ready(Ok(event));
             }
             if !self.resync.swap(false, Ordering::Relaxed) {
                 self.waker.register(cx.waker());

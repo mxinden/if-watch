@@ -5,7 +5,6 @@ use if_addrs::IfAddr;
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::io::{Error, ErrorKind, Result};
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};

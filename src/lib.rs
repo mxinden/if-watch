@@ -67,7 +67,7 @@ impl IfWatcher {
 
     /// Poll for an address change event.
     pub fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<IfEvent>> {
-        Pin::new(&mut self.0).poll_next(cx)
+        self.0.poll_next(cx)
     }
 }
 

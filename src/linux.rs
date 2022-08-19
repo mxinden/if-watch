@@ -80,7 +80,7 @@ impl IfWatcher {
         }
     }
 
-    pub fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<IfEvent>> {
+    pub fn poll_if_event(&mut self, cx: &mut Context) -> Poll<Result<IfEvent>> {
         loop {
             if let Some(event) = self.queue.pop_front() {
                 return Poll::Ready(Ok(event));

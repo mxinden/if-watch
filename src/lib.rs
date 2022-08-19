@@ -66,15 +66,15 @@ impl IfWatcher {
     }
 
     /// Poll for an address change event.
-    pub fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<IfEvent>> {
-        Pin::new(&mut self.0).poll_next(cx)
+    pub fn poll_if_event(&mut self, cx: &mut Context) -> Poll<Result<IfEvent>> {
+        self.0.poll_if_event(cx)
     }
 }
 
 impl Stream for IfWatcher {
     type Item = Result<IfEvent>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.poll_next(cx).map(Some)
+        Pin::into_inner(self).poll_if_event(cx).map(Some)
     }
 }
 

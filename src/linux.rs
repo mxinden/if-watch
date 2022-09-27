@@ -7,7 +7,14 @@ use rtnetlink::constants::{RTMGRP_IPV4_IFADDR, RTMGRP_IPV6_IFADDR};
 use rtnetlink::packet::address::nlas::Nla;
 use rtnetlink::packet::{AddressMessage, RtnlMessage};
 use rtnetlink::proto::{Connection, NetlinkPayload};
-use rtnetlink::sys::{AsyncSocket, SmolSocket, SocketAddr};
+use rtnetlink::sys::{AsyncSocket, SocketAddr};
+// If "only" tokio or smol+tokio are enabled, we use tokio,
+// as smol is activated via default features.
+#[cfg(feature = "tokio_socket")]
+use rtnetlink::sys::TokioSocket as Socket;
+// Otherwise, when only smol enabled, we use smol.
+#[cfg(all(not(feature = "tokio_socket"), feature = "smol_socket"))]
+use rtnetlink::sys::SmolSocket as Socket;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::io::{Error, ErrorKind, Result};
@@ -16,7 +23,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub struct IfWatcher {
-    conn: Connection<RtnlMessage, SmolSocket>,
+    conn: Connection<RtnlMessage, Socket>,
     messages: Pin<Box<dyn Stream<Item = Result<RtnlMessage>> + Send>>,
     addrs: FnvHashSet<IpNet>,
     queue: VecDeque<IfEvent>,
@@ -32,7 +39,7 @@ impl std::fmt::Debug for IfWatcher {
 
 impl IfWatcher {
     pub fn new() -> Result<Self> {
-        let (mut conn, handle, messages) = rtnetlink::new_connection_with_socket::<SmolSocket>()?;
+        let (mut conn, handle, messages) = rtnetlink::new_connection_with_socket::<Socket>()?;
         let groups = RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR;
         let addr = SocketAddr::new(0, groups);
         conn.socket_mut().socket_mut().bind(&addr)?;

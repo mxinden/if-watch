@@ -2,12 +2,15 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
-use futures::stream::FusedStream;
-use futures::Stream;
+#[cfg(not(target_os = "linux"))]
+use futures::stream::{FusedStream, Stream};
 pub use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use std::io::Result;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+#[cfg(not(target_os = "linux"))]
+use std::{
+    io::Result,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 #[cfg(target_os = "macos")]
 mod apple;
@@ -36,10 +39,16 @@ use apple as platform_impl;
     target_os = "windows",
 )))]
 use fallback as platform_impl;
-#[cfg(target_os = "linux")]
-use linux as platform_impl;
 #[cfg(target_os = "windows")]
 use win as platform_impl;
+
+#[cfg(target_os = "linux")]
+#[cfg(feature = "tokio_socket")]
+pub use linux::TokioIfWatch;
+
+#[cfg(target_os = "linux")]
+#[cfg(feature = "smol_socket")]
+pub use linux::SmolIfWatcher as IfWatcher;
 
 /// An address change event.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -51,11 +60,13 @@ pub enum IfEvent {
 }
 
 /// Watches for interface changes.
+#[cfg(not(target_os = "linux"))]
 #[derive(Debug)]
 pub struct IfWatcher(platform_impl::IfWatcher);
 
+#[cfg(not(target_os = "linux"))]
 impl IfWatcher {
-    /// Create a watcher
+    /// Create a watcher.
     pub fn new() -> Result<Self> {
         platform_impl::IfWatcher::new().map(Self)
     }
@@ -71,6 +82,7 @@ impl IfWatcher {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 impl Stream for IfWatcher {
     type Item = Result<IfEvent>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -78,6 +90,7 @@ impl Stream for IfWatcher {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 impl FusedStream for IfWatcher {
     fn is_terminated(&self) -> bool {
         false
@@ -86,7 +99,8 @@ impl FusedStream for IfWatcher {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::IfWatcher;
+    use std::pin::Pin;
     use futures::StreamExt;
 
     #[test]

@@ -9,9 +9,9 @@ description = "crossplatform asynchronous network watcher"
 repository = "https://github.com/mxinden/if-watch"
 
 [features]
-default = ["smol_socket"]
+default = ["smol"]
 tokio = ["rtnetlink/tokio_socket"]
-smol_socket = ["rtnetlink/smol_socket"]
+smol = ["rtnetlink/smol_socket"]
 
 [dependencies]
 fnv = "1.0.7"

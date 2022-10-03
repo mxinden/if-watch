@@ -7,10 +7,6 @@ use rtnetlink::constants::{RTMGRP_IPV4_IFADDR, RTMGRP_IPV6_IFADDR};
 use rtnetlink::packet::address::nlas::Nla;
 use rtnetlink::packet::{AddressMessage, RtnlMessage};
 use rtnetlink::proto::{Connection, NetlinkPayload};
-#[cfg(feature = "smol_socket")]
-use rtnetlink::sys::SmolSocket;
-#[cfg(feature = "tokio_socket")]
-use rtnetlink::sys::TokioSocket;
 use rtnetlink::sys::{AsyncSocket, SocketAddr};
 use std::collections::VecDeque;
 use std::future::Future;
@@ -19,13 +15,23 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-#[cfg(feature = "tokio_socket")]
-/// Watches for interface changes.
-pub type TokioIfWatcher = IfWatcher<TokioSocket>;
+#[cfg(feature = "tokio")]
+pub mod tokio {
+    //! An interface watcher that uses `rtnetlink`'s [`TokioSocket`](rtnetlink::sys::TokioSocket)
+    use rtnetlink::sys::TokioSocket;
 
-#[cfg(feature = "smol_socket")]
-/// Watches for interface changes.
-pub type SmolIfWatcher = IfWatcher<SmolSocket>;
+    /// Watches for interface changes.
+    pub type IfWatcher = super::IfWatcher<TokioSocket>;
+}
+
+#[cfg(feature = "smol")]
+pub mod smol {
+    //! An interface watcher that uses `rtnetlink`'s [`SmolSocket`](rtnetlink::sys::SmolSocket)
+    use rtnetlink::sys::SmolSocket;
+
+    /// Watches for interface changes.
+    pub type IfWatcher = super::IfWatcher<SmolSocket>;
+}
 
 pub struct IfWatcher<T> {
     conn: Connection<RtnlMessage, T>,

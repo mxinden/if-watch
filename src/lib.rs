@@ -43,12 +43,12 @@ use fallback as platform_impl;
 use win as platform_impl;
 
 #[cfg(target_os = "linux")]
-#[cfg(feature = "tokio_socket")]
-pub use linux::TokioIfWatch;
+#[cfg(feature = "tokio")]
+pub use linux::tokio;
 
 #[cfg(target_os = "linux")]
-#[cfg(feature = "smol_socket")]
-pub use linux::SmolIfWatcher as IfWatcher;
+#[cfg(feature = "smol")]
+pub use linux::smol::IfWatcher;
 
 /// An address change event.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -100,8 +100,8 @@ impl FusedStream for IfWatcher {
 #[cfg(test)]
 mod tests {
     use super::IfWatcher;
-    use std::pin::Pin;
     use futures::StreamExt;
+    use std::pin::Pin;
 
     #[test]
     fn test_ip_watch() {

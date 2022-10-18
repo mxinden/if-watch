@@ -87,7 +87,7 @@ where
     /// Create a watcher.
     pub fn new() -> Result<Self> {
         let (tx, rx) = mpsc::channel(1);
-        T::spawn(async { background_task(tx) });
+        T::spawn(background_task(tx));
         let mut watcher = Self {
             addrs: Default::default(),
             queue: Default::default(),
@@ -183,7 +183,7 @@ fn callback(_store: SCDynamicStore, _changed_keys: CFArray<CFString>, info: &mut
     }
 }
 
-fn background_task(tx: mpsc::Sender<()>) {
+async fn background_task(tx: mpsc::Sender<()>) {
     let store = SCDynamicStoreBuilder::new("global-network-watcher")
         .callback_context(SCDynamicStoreCallBackContext {
             callout: callback,

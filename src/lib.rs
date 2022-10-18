@@ -28,15 +28,23 @@ pub use apple::tokio;
 #[cfg(feature = "smol")]
 pub use apple::smol;
 
-#[cfg(target_os = "ios")]
-use apple as platform_impl;
+#[cfg(feature = "smol")]
 #[cfg(not(any(
     target_os = "ios",
     target_os = "linux",
     target_os = "macos",
     target_os = "windows",
 )))]
-use fallback as platform_impl;
+pub use fallback::smol;
+
+#[cfg(feature = "tokio")]
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows",
+)))]
+pub use fallback::tokio;
 
 #[cfg(target_os = "windows")]
 #[cfg(feature = "tokio")]

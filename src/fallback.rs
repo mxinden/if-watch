@@ -4,7 +4,6 @@ use futures::stream::{FusedStream, Stream};
 use if_addrs::IfAddr;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::collections::{HashSet, VecDeque};
-use std::future::Future;
 use std::io::Result;
 use std::pin::Pin;
 use std::task::{Context, Poll};

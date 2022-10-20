@@ -8,6 +8,9 @@ license = "MIT OR Apache-2.0"
 description = "crossplatform asynchronous network watcher"
 repository = "https://github.com/mxinden/if-watch"
 
+[lib]
+crate-type = ["cdylib", "lib"]
+
 [features]
 tokio = ["dep:tokio", "rtnetlink/tokio_socket"]
 smol = ["dep:smol", "rtnetlink/smol_socket"]

@@ -5,11 +5,9 @@ use core_foundation::string::CFString;
 use fnv::FnvHashSet;
 use futures::channel::mpsc;
 use futures::stream::{FusedStream, Stream};
-use futures::Future;
 use if_addrs::IfAddr;
 use std::collections::VecDeque;
 use std::io::Result;
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use system_configuration::dynamic_store::{
@@ -18,81 +16,39 @@ use system_configuration::dynamic_store::{
 
 #[cfg(feature = "tokio")]
 pub mod tokio {
-    //! An interface watcher that uses the `tokio` runtime.
-    use futures::Future;
-
-    #[doc(hidden)]
-    pub struct TokioRuntime;
-
-    impl super::Runtime for TokioRuntime {
-        fn spawn<F>(f: F)
-        where
-            F: Future,
-            F: Send + 'static,
-            <F as Future>::Output: Send + 'static,
-        {
-            tokio::spawn(f);
-        }
-    }
+    //! An interface watcher.
+    //! **On Apple Platforms there is no difference between `tokio` and `smol` features,**
+    //! **this was done to maintain the api compatible with other platforms**.
 
     /// Watches for interface changes.
-    pub type IfWatcher = super::IfWatcher<TokioRuntime>;
+    pub type IfWatcher = super::IfWatcher;
 }
 
 #[cfg(feature = "smol")]
 pub mod smol {
-    //! An interface watcher that uses the `smol` runtime.
-
-    use futures::Future;
-
-    #[doc(hidden)]
-    pub struct SmolRuntime;
-
-    impl super::Runtime for SmolRuntime {
-        fn spawn<F>(f: F)
-        where
-            F: Future,
-            F: Send + 'static,
-            <F as Future>::Output: Send + 'static,
-        {
-            smol::spawn(f).detach();
-        }
-    }
+    //! An interface watcher.
+    //! **On Apple platforms there is no difference between `tokio` and `smol` features,**
+    //! **this was done to maintain the api compatible with other platforms**.
 
     /// Watches for interface changes.
-    pub type IfWatcher = super::IfWatcher<SmolRuntime>;
+    pub type IfWatcher = super::IfWatcher;
 }
 
 #[derive(Debug)]
-pub struct IfWatcher<T> {
+pub struct IfWatcher {
     addrs: FnvHashSet<IpNet>,
     queue: VecDeque<IfEvent>,
     rx: mpsc::Receiver<()>,
-    runtime: PhantomData<T>,
 }
 
-#[doc(hidden)]
-pub trait Runtime {
-    fn spawn<F>(f: F)
-    where
-        F: Future,
-        F: Send + 'static,
-        <F as Future>::Output: Send + 'static;
-}
-
-impl<T> IfWatcher<T>
-where
-    T: Runtime,
-{
-    /// Create a watcher.
+impl IfWatcher {
     pub fn new() -> Result<Self> {
         let (tx, rx) = mpsc::channel(1);
-        T::spawn(background_task(tx));
+        std::thread::spawn(|| background_task(tx));
         let mut watcher = Self {
             addrs: Default::default(),
             queue: Default::default(),
             rx,
-            runtime: PhantomData,
         };
         watcher.resync()?;
         Ok(watcher)
@@ -140,20 +96,14 @@ where
     }
 }
 
-impl<T> Stream for IfWatcher<T>
-where
-    T: Runtime + Unpin,
-{
+impl Stream for IfWatcher {
     type Item = Result<IfEvent>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::into_inner(self).poll_if_event(cx).map(Some)
     }
 }
 
-impl<T> FusedStream for IfWatcher<T>
-where
-    T: Runtime + Unpin,
-{
+impl FusedStream for IfWatcher {
     fn is_terminated(&self) -> bool {
         false
     }
@@ -183,7 +133,7 @@ fn callback(_store: SCDynamicStore, _changed_keys: CFArray<CFString>, info: &mut
     }
 }
 
-async fn background_task(tx: mpsc::Sender<()>) {
+fn background_task(tx: mpsc::Sender<()>) {
     let store = SCDynamicStoreBuilder::new("global-network-watcher")
         .callback_context(SCDynamicStoreCallBackContext {
             callout: callback,

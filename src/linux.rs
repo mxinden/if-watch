@@ -1,13 +1,13 @@
 use crate::{IfEvent, IpNet, Ipv4Net, Ipv6Net};
 use fnv::FnvHashSet;
 use futures::ready;
-use futures::stream::{Stream, TryStreamExt};
+use futures::stream::{FusedStream, Stream, TryStreamExt};
 use futures::StreamExt;
 use rtnetlink::constants::{RTMGRP_IPV4_IFADDR, RTMGRP_IPV6_IFADDR};
 use rtnetlink::packet::address::nlas::Nla;
 use rtnetlink::packet::{AddressMessage, RtnlMessage};
 use rtnetlink::proto::{Connection, NetlinkPayload};
-use rtnetlink::sys::{AsyncSocket, SmolSocket, SocketAddr};
+use rtnetlink::sys::{AsyncSocket, SocketAddr};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::io::{Error, ErrorKind, Result};
@@ -15,14 +15,32 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub struct IfWatcher {
-    conn: Connection<RtnlMessage, SmolSocket>,
+#[cfg(feature = "tokio")]
+pub mod tokio {
+    //! An interface watcher that uses `rtnetlink`'s [`TokioSocket`](rtnetlink::sys::TokioSocket)
+    use rtnetlink::sys::TokioSocket;
+
+    /// Watches for interface changes.
+    pub type IfWatcher = super::IfWatcher<TokioSocket>;
+}
+
+#[cfg(feature = "smol")]
+pub mod smol {
+    //! An interface watcher that uses `rtnetlink`'s [`SmolSocket`](rtnetlink::sys::SmolSocket)
+    use rtnetlink::sys::SmolSocket;
+
+    /// Watches for interface changes.
+    pub type IfWatcher = super::IfWatcher<SmolSocket>;
+}
+
+pub struct IfWatcher<T> {
+    conn: Connection<RtnlMessage, T>,
     messages: Pin<Box<dyn Stream<Item = Result<RtnlMessage>> + Send>>,
     addrs: FnvHashSet<IpNet>,
     queue: VecDeque<IfEvent>,
 }
 
-impl std::fmt::Debug for IfWatcher {
+impl<T> std::fmt::Debug for IfWatcher<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("IfWatcher")
             .field("addrs", &self.addrs)
@@ -30,9 +48,13 @@ impl std::fmt::Debug for IfWatcher {
     }
 }
 
-impl IfWatcher {
+impl<T> IfWatcher<T>
+where
+    T: AsyncSocket + Unpin,
+{
+    /// Create a watcher.
     pub fn new() -> Result<Self> {
-        let (mut conn, handle, messages) = rtnetlink::new_connection_with_socket::<SmolSocket>()?;
+        let (mut conn, handle, messages) = rtnetlink::new_connection_with_socket::<T>()?;
         let groups = RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR;
         let addr = SocketAddr::new(0, groups);
         conn.socket_mut().socket_mut().bind(&addr)?;
@@ -60,6 +82,7 @@ impl IfWatcher {
         })
     }
 
+    /// Iterate over current networks.
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
@@ -80,6 +103,7 @@ impl IfWatcher {
         }
     }
 
+    /// Poll for an address change event.
     pub fn poll_if_event(&mut self, cx: &mut Context) -> Poll<Result<IfEvent>> {
         loop {
             if let Some(event) = self.queue.pop_front() {
@@ -128,4 +152,23 @@ fn iter_nets(msg: AddressMessage) -> impl Iterator<Item = IpNet> {
             None
         }
     })
+}
+
+impl<T> Stream for IfWatcher<T>
+where
+    T: AsyncSocket + Unpin,
+{
+    type Item = Result<IfEvent>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::into_inner(self).poll_if_event(cx).map(Some)
+    }
+}
+
+impl<T> FusedStream for IfWatcher<T>
+where
+    T: AsyncSocket + AsyncSocket + Unpin,
+{
+    fn is_terminated(&self) -> bool {
+        false
+    }
 }

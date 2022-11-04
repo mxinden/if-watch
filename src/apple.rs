@@ -4,7 +4,7 @@ use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
 use core_foundation::string::CFString;
 use fnv::FnvHashSet;
 use futures::channel::mpsc;
-use futures::stream::Stream;
+use futures::stream::{FusedStream, Stream};
 use if_addrs::IfAddr;
 use std::collections::VecDeque;
 use std::io::Result;
@@ -13,6 +13,26 @@ use std::task::{Context, Poll};
 use system_configuration::dynamic_store::{
     SCDynamicStore, SCDynamicStoreBuilder, SCDynamicStoreCallBackContext,
 };
+
+#[cfg(feature = "tokio")]
+pub mod tokio {
+    //! An interface watcher.
+    //! **On Apple Platforms there is no difference between `tokio` and `smol` features,**
+    //! **this was done to maintain the api compatible with other platforms**.
+
+    /// Watches for interface changes.
+    pub type IfWatcher = super::IfWatcher;
+}
+
+#[cfg(feature = "smol")]
+pub mod smol {
+    //! An interface watcher.
+    //! **On Apple platforms there is no difference between `tokio` and `smol` features,**
+    //! **this was done to maintain the api compatible with other platforms**.
+
+    /// Watches for interface changes.
+    pub type IfWatcher = super::IfWatcher;
+}
 
 #[derive(Debug)]
 pub struct IfWatcher {
@@ -55,10 +75,12 @@ impl IfWatcher {
         Ok(())
     }
 
+    /// Iterate over current networks.
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
 
+    /// Poll for an address change event.
     pub fn poll_if_event(&mut self, cx: &mut Context) -> Poll<Result<IfEvent>> {
         loop {
             if let Some(event) = self.queue.pop_front() {
@@ -71,6 +93,19 @@ impl IfWatcher {
                 return Poll::Ready(Err(error));
             }
         }
+    }
+}
+
+impl Stream for IfWatcher {
+    type Item = Result<IfEvent>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::into_inner(self).poll_if_event(cx).map(Some)
+    }
+}
+
+impl FusedStream for IfWatcher {
+    fn is_terminated(&self) -> bool {
+        false
     }
 }
 

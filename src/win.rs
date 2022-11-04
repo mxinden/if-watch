@@ -1,10 +1,12 @@
 use crate::{IfEvent, IpNet, Ipv4Net, Ipv6Net};
 use fnv::FnvHashSet;
+use futures::stream::{FusedStream, Stream};
 use futures::task::AtomicWaker;
 use if_addrs::IfAddr;
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::io::{Error, ErrorKind, Result};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -13,6 +15,26 @@ use windows::Win32::NetworkManagement::IpHelper::{
     CancelMibChangeNotify2, NotifyIpInterfaceChange, AF_UNSPEC, MIB_IPINTERFACE_ROW,
     MIB_NOTIFICATION_TYPE,
 };
+
+#[cfg(feature = "tokio")]
+pub mod tokio {
+    //! An interface watcher.
+    //! **On Windows there is no difference between `tokio` and `smol` features,**
+    //! **this was done to maintain the api compatible with other platforms**.
+
+    /// Watches for interface changes.
+    pub type IfWatcher = super::IfWatcher;
+}
+
+#[cfg(feature = "smol")]
+pub mod smol {
+    //! An interface watcher.
+    //! **On Windows there is no difference between `tokio` and `smol` features,**
+    //! **this was done to maintain the api compatible with other platforms**.
+
+    /// Watches for interface changes.
+    pub type IfWatcher = super::IfWatcher;
+}
 
 /// An address set/watcher
 #[derive(Debug)]
@@ -26,7 +48,7 @@ pub struct IfWatcher {
 }
 
 impl IfWatcher {
-    /// Create a watcher
+    /// Create a watcher.
     pub fn new() -> Result<Self> {
         let resync = Arc::new(AtomicBool::new(true));
         let waker = Arc::new(AtomicWaker::new());
@@ -63,10 +85,12 @@ impl IfWatcher {
         Ok(())
     }
 
+    /// Iterate over current networks.
     pub fn iter(&self) -> impl Iterator<Item = &IpNet> {
         self.addrs.iter()
     }
 
+    /// Poll for an address change event.
     pub fn poll_if_event(&mut self, cx: &mut Context) -> Poll<Result<IfEvent>> {
         loop {
             if let Some(event) = self.queue.pop_front() {
@@ -80,6 +104,19 @@ impl IfWatcher {
                 return Poll::Ready(Err(error));
             }
         }
+    }
+}
+
+impl Stream for IfWatcher {
+    type Item = Result<IfEvent>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::into_inner(self).poll_if_event(cx).map(Some)
+    }
+}
+
+impl FusedStream for IfWatcher {
+    fn is_terminated(&self) -> bool {
+        false
     }
 }
 

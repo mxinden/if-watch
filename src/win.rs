@@ -12,9 +12,9 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use windows::Win32::Foundation::{BOOLEAN, HANDLE};
 use windows::Win32::NetworkManagement::IpHelper::{
-    CancelMibChangeNotify2, NotifyIpInterfaceChange, AF_UNSPEC, MIB_IPINTERFACE_ROW,
-    MIB_NOTIFICATION_TYPE,
+    CancelMibChangeNotify2, NotifyIpInterfaceChange, MIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE,
 };
+use windows::Win32::Networking::WinSock::AF_UNSPEC;
 
 #[cfg(feature = "tokio")]
 pub mod tokio {
@@ -165,9 +165,9 @@ impl IpChangeNotification {
         let callback = Box::into_raw(Box::new(cb));
         unsafe {
             NotifyIpInterfaceChange(
-                AF_UNSPEC.0 as _,
+                AF_UNSPEC,
                 Some(global_callback),
-                callback as _,
+                Some(callback as _),
                 BOOLEAN(0),
                 &mut handle as _,
             )

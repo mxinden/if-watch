@@ -36,11 +36,11 @@ if-addrs = "0.7.0"
 windows = { version = "0.51.0", features = ["Win32_NetworkManagement_IpHelper", "Win32_Foundation", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
 
 [target.'cfg(not(any(target_os = "ios", target_os = "linux", target_os = "macos", target_os = "windows")))'.dependencies]
-async-io = "1.6.0"
+async-io = "2.0.0"
 if-addrs = "0.7.0"
 
 [dev-dependencies]
-env_logger = "0.9.0"
+env_logger = "0.10.0"
 smol = "1.2.5"
 tokio = { version = "1.21.2", features = ["rt", "macros"] }
 

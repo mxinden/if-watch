@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Update `system-configuration` crates.
-  See [PR_37](https://github.com/mxinden/if-watch/pull/37)
+- Update `system-configuration` crate.
+  See [PR_37](https://github.com/mxinden/if-watch/pull/37).
 
 ## [3.2.0]
 
